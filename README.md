@@ -64,7 +64,7 @@ When the trigger fires, the following **configuration parameters** are automatic
 |-----------|---------|-------------|
 | `teamcity.build.triggered.BuildTypeId` | `Dev_BuildA` | External ID of the watched build configuration |
 | `teamcity.build.triggered.BuildConfName` | `Build A` | Name of the watched build configuration |
-| `teamcity.build.triggered.ProjectConfName` | `Release / Client / KR / Android` | Full project path of the watched build configuration |
+| `teamcity.build.triggered.ProjectConfName` | `ProjectName / SubProjectName / Android` | Full project path of the watched build configuration |
 | `teamcity.build.triggered.BuildNumber` | `42` | Build number of the specific watched build |
 | `teamcity.build.triggered.BuildId` | `801` | Internal numeric build ID |
 
