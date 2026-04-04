@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<teamcity-plugin xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xsi:noNamespaceSchemaLocation="urn:schemas-jetbrains-com:teamcity-plugin-v1-xml">
+  <info>
+    <!-- Internal plugin name (no spaces) -->
+    <name>finish-build-trigger-plus</name>
+    <display-name>Finish Build Trigger (Plus)</display-name>
+    <version>260404.2</version>
+    <description>
+      Enhanced Finish Build Trigger that adds:
+      (1) "Trigger build on all enabled and compatible agents" (same as Schedule Trigger),
+      (2) "Time to wait (in minutes)" delay before the triggered build is queued,
+      (3) Build Customization (clean sources, custom parameters),
+      (4) Triggering build information (injects watched build metadata and passes through the triggering user).
+    </description>
+    <vendor>
+      <name>WooJin Kim</name>
+      <url>https://github.com/xwoojin/finish-build-trigger-plus</url>
+    </vendor>
+  </info>
+
+  <!--
+    use-separate-classloader="true" is strongly recommended to avoid
+    classpath conflicts with other plugins.
+  -->
+  <deployment use-separate-classloader="true"/>
+</teamcity-plugin>

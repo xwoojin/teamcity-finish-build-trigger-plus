@@ -1,0 +1,30 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0
+          https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+
+  <id>plugin</id>
+
+  <formats>
+    <format>zip</format>
+  </formats>
+
+  <!-- Do not create an outer directory inside the ZIP -->
+  <includeBaseDirectory>false</includeBaseDirectory>
+
+  <files>
+    <!-- teamcity-plugin.xml goes at the ZIP root -->
+    <file>
+      <source>${project.basedir}/../teamcity-plugin.xml</source>
+      <outputDirectory>/</outputDirectory>
+      <filtered>false</filtered>
+    </file>
+
+    <!-- The compiled server JAR goes into server/ -->
+    <file>
+      <source>${project.build.directory}/${project.build.finalName}.jar</source>
+      <outputDirectory>/server</outputDirectory>
+    </file>
+  </files>
+
+</assembly>

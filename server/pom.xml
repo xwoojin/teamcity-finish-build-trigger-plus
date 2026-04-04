@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>xwoojin.teamcity</groupId>
+    <artifactId>finish-build-trigger-plus</artifactId>
+    <version>260404.2</version>
+  </parent>
+
+  <artifactId>finish-build-trigger-plus-server</artifactId>
+  <packaging>jar</packaging>
+  <name>Finish Build Trigger (Plus) - Server</name>
+
+  <dependencies>
+    <!-- TeamCity Server OpenAPI -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>server-openapi</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/server-openapi.jar</systemPath>
+    </dependency>
+
+    <!-- TeamCity Server Common API (PluginDescriptor, PropertiesProcessor, InvalidProperty) -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>server-common-api</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/server-common-api.jar</systemPath>
+    </dependency>
+
+    <!-- TeamCity Web OpenAPI (WebControllerManager, BaseController) -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>web-openapi</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/web-openapi.jar</systemPath>
+    </dependency>
+
+    <!-- IntelliJ Logger (com.intellij.openapi.diagnostic.Logger) -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>logging</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/logging.jar</systemPath>
+    </dependency>
+
+    <!-- Spring WebMVC (AbstractController, ModelAndView) -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-webmvc</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/spring-webmvc.jar</systemPath>
+    </dependency>
+
+    <!-- Spring Beans (BeanFactory etc.) -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-beans</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/spring-beans.jar</systemPath>
+    </dependency>
+
+    <!-- Servlet API -->
+    <dependency>
+      <groupId>javax.servlet</groupId>
+      <artifactId>servlet-api</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.tomcat.lib}/servlet-api.jar</systemPath>
+    </dependency>
+
+    <!-- JetBrains @NotNull / @Nullable annotations -->
+    <dependency>
+      <groupId>org.jetbrains</groupId>
+      <artifactId>annotations</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/annotations.jar</systemPath>
+    </dependency>
+
+    <!-- TeamCity common (TeamCityExtension base interface) -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>common</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/common.jar</systemPath>
+    </dependency>
+
+    <!-- Spring Web (WebApplicationObjectSupport, required by BaseController) -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/spring-web.jar</systemPath>
+    </dependency>
+
+    <!-- Spring Context (ApplicationObjectSupport, required by spring-web) -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-context</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/spring-context.jar</systemPath>
+    </dependency>
+
+    <!-- TeamCity server-model (BuildType, ParametersDescriptor, etc.) -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>server-model</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/server-model.jar</systemPath>
+    </dependency>
+
+    <!-- Spring Core (NestedRuntimeException, required by spring-context) -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-core</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/spring-core.jar</systemPath>
+    </dependency>
+
+    <!-- TeamCity VCS OpenAPI (LVcsRootInstanceHolder, required by SBuildType) -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>server-openapi-vcs</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/server-openapi-vcs.jar</systemPath>
+    </dependency>
+
+    <!-- TeamCity utils (Loggable, required by SBuildAgent) -->
+    <dependency>
+      <groupId>jetbrains.teamcity</groupId>
+      <artifactId>utils</artifactId>
+      <version>local</version>
+      <scope>system</scope>
+      <systemPath>${teamcity.lib}/utils.jar</systemPath>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- 1) JAR 생성 (buildServerResources/JSP 포함) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.3.0</version>
+        <configuration>
+          <archive>
+            <addMavenDescriptor>false</addMavenDescriptor>
+          </archive>
+        </configuration>
+      </plugin>
+
+      <!-- 2) 최종 플러그인 ZIP 패키징 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <id>package-plugin-zip</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/plugin.xml</descriptor>
+              </descriptors>
+              <finalName>finish-build-trigger-plus</finalName>
+              <appendAssemblyId>false</appendAssemblyId>
+              <outputDirectory>${project.parent.basedir}/dist</outputDirectory>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

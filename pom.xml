@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>xwoojin.teamcity</groupId>
+  <artifactId>finish-build-trigger-plus</artifactId>
+  <version>260404.2</version>
+  <packaging>pom</packaging>
+  <name>Finish Build Trigger (Plus)</name>
+
+  <modules>
+    <module>server</module>
+  </modules>
+
+  <properties>
+    <maven.compiler.source>11</maven.compiler.source>
+    <maven.compiler.target>11</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- TeamCity server home (로컬 설치 경로) -->
+    <teamcity.home>C:/Users/wooji/ClaudeCode/Server</teamcity.home>
+    <teamcity.lib>${teamcity.home}/webapps/ROOT/WEB-INF/lib</teamcity.lib>
+    <teamcity.tomcat.lib>${teamcity.home}/lib</teamcity.tomcat.lib>
+  </properties>
+</project>

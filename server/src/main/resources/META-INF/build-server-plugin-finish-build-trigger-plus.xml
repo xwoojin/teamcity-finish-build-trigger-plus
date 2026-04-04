@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE beans PUBLIC "-//SPRING//DTD BEAN//EN"
+    "http://www.springframework.org/dtd/spring-beans.dtd">
+<!--
+  Spring bean definitions for Finish Build Trigger (Plus).
+
+  TeamCity auto-discovers files matching META-INF/build-server-plugin-*.xml
+  inside server-side plugin JARs and loads them as separate Spring contexts.
+
+  default-autowire="constructor" lets Spring inject ProjectManager,
+  BuildAgentManager, PluginDescriptor, SBuildServer, and WebControllerManager
+  automatically by type.
+-->
+<beans default-autowire="constructor">
+
+  <!-- Core trigger service – registers the trigger type with TeamCity -->
+  <bean id="finishBuildTriggerPlusService"
+        class="xwoojin.teamcity.trigger.FinishBuildTriggerPlusService"/>
+
+  <!-- Settings-page controller – registers the .html edit URL -->
+  <bean id="finishBuildTriggerPlusController"
+        class="xwoojin.teamcity.trigger.FinishBuildTriggerPlusController"/>
+
+</beans>
