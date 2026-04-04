@@ -1,4 +1,4 @@
-# Finish Build Trigger (Plus)
+# TeamCity Finish Build Trigger (Plus)
 
 A TeamCity server plugin that enhances the built-in **Finish Build Trigger** with additional capabilities.
 
