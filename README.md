@@ -19,7 +19,7 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 
 ## Installation
 
-1. Download the latest `finish-build-trigger-plus.zip` from [Releases](https://github.com/xwoojin/finish-build-trigger-plus/releases), or build from source.
+1. Download the latest `finish-build-trigger-plus.zip` from [Releases](https://github.com/xwoojin/teamcity-finish-build-trigger-plus/releases/), or build from source.
 2. Copy the ZIP to your TeamCity data directory:
    ```
    <TeamCity data dir>/plugins/finish-build-trigger-plus.zip
