@@ -4,10 +4,13 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 
 ## Features
 
-- **Trigger on all compatible agents** — Queues one build per enabled compatible agent, identical to the Schedule Trigger option.
-- **Time to wait (minutes)** — Delays the triggered build by N minutes after the watched build finishes.
-- **Build Customization** — Supports clean sources, snapshot dependency rebuild, and custom build parameters via the standard TeamCity tab.
-- **Triggering build information** — Injects watched build metadata (`buildTypeId`, `buildTypeName`, `BuildNumber`, `BuildId`) as configuration parameters into the triggered build, and passes through the triggering user so `triggeredBy.username` reflects who started the original build.
+| Feature | Description |
+|---------|-------------|
+| **Conditional multi-build trigger (AND)** | Watch multiple build configurations and trigger only when ALL of them have completed. e.g. Build A + Build B + Build C must all finish before Build D starts. Self-referencing and duplicate selections are prevented. |
+| **Trigger on all compatible agents** | Queues one build per enabled compatible agent, identical to the Schedule Trigger option. |
+| **Time to wait (minutes)** | Delays the triggered build by N minutes after the watched build finishes. |
+| **Build Customization** | Supports clean sources, snapshot dependency rebuild, and custom build parameters via the standard TeamCity tab. |
+| **Triggering build information** | Injects watched build metadata as configuration parameters and passes through the triggering user. |
 
 ## Requirements
 
@@ -19,7 +22,7 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 
 ## Installation
 
-1. Download the latest `finish-build-trigger-plus.zip` from [Releases](https://github.com/xwoojin/teamcity-finish-build-trigger-plus/releases/), or build from source.
+1. Download the latest `finish-build-trigger-plus.zip` from [Releases](https://github.com/xwoojin/teamcity-finish-build-trigger-plus/releases), or build from source.
 2. Copy the ZIP to your TeamCity data directory:
    ```
    <TeamCity data dir>/plugins/finish-build-trigger-plus.zip
@@ -32,9 +35,13 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
    ```xml
    <teamcity.home>/path/to/your/TeamCity</teamcity.home>
    ```
-2. Build:
+2. Build (auto-increments version):
    ```bash
-   mvn verify
+   ./build.sh
+   ```
+   Or manually:
+   ```bash
+   mvn clean verify
    ```
 3. The deployable ZIP is produced at `dist/finish-build-trigger-plus.zip`.
 
@@ -43,14 +50,24 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 1. Open **Build Configuration Settings > Triggers**.
 2. Click **Add new trigger** and select **Finish Build Trigger (Plus)**.
 
-### Triggering Settings
+### Finish Build Trigger (Plus) Settings
 
 | Setting | Description |
 |---------|-------------|
-| **Build configuration** | The build configuration to watch for completion. |
+| **Build configuration** | The build configuration(s) to watch. Use **+ Add build configuration** to add multiple — trigger fires when ALL complete (AND condition). |
+
+### Additional Options
+
+| Setting | Description |
+|---------|-------------|
 | **Trigger after successful build only** | Only trigger when the watched build finishes with SUCCESS status. |
 | **Trigger build on all enabled and compatible agents** | Queue a separate build for each enabled compatible agent. |
-| **Time to wait (minutes)** | Minutes to wait after the watched build finishes before queuing. Leave empty or `0` for immediate. |
+
+### Delay Trigger Options
+
+| Setting | Description |
+|---------|-------------|
+| **Time to wait (minutes)** | Minutes to wait after the watched build finishes before queuing. Leave empty or `0` for immediate. In multi-build mode, the delay starts from the last build to finish. |
 
 ### Build Customization
 
@@ -58,19 +75,43 @@ The standard TeamCity **Build Customization** tab is available, allowing you to 
 
 ## Injected Build Parameters
 
-When the trigger fires, the following **configuration parameters** are automatically injected into the triggered build:
+### Single-Build Mode
+
+When the trigger watches a single build configuration, the following **configuration parameters** are injected into the triggered build:
 
 | Parameter | Example | Description |
 |-----------|---------|-------------|
 | `teamcity.build.triggered.BuildTypeId` | `Dev_BuildA` | External ID of the watched build configuration |
 | `teamcity.build.triggered.BuildConfName` | `Build A` | Name of the watched build configuration |
-| `teamcity.build.triggered.ProjectConfName` | `ProjectName / SubProjectName / Android` | Full project path of the watched build configuration |
+| `teamcity.build.triggered.ProjectConfName` | `Project / SubProject / Android` | Full project path of the watched build configuration |
 | `teamcity.build.triggered.BuildNumber` | `42` | Build number of the specific watched build |
 | `teamcity.build.triggered.BuildId` | `801` | Internal numeric build ID |
 
-These can be referenced in build steps:
+Usage in build steps:
 ```
 echo "Triggered by: %teamcity.build.triggered.ProjectConfName% / %teamcity.build.triggered.BuildConfName% #%teamcity.build.triggered.BuildNumber%"
+```
+
+### Multi-Build Mode (AND)
+
+When multiple build configurations are watched, indexed parameters are injected:
+
+| Parameter | Example | Description |
+|-----------|---------|-------------|
+| `teamcity.build.triggered.BuildCount` | `3` | Number of watched builds |
+| `teamcity.build.triggered.1.BuildTypeId` | `Dev_BuildA` | External ID of the 1st watched build |
+| `teamcity.build.triggered.1.BuildConfName` | `Build A` | Name of the 1st watched build |
+| `teamcity.build.triggered.1.ProjectConfName` | `Project / Android` | Full project path of the 1st watched build |
+| `teamcity.build.triggered.1.BuildNumber` | `42` | Build number of the 1st watched build |
+| `teamcity.build.triggered.1.BuildId` | `801` | Internal build ID of the 1st watched build |
+| `teamcity.build.triggered.2.*` | ... | Same fields for the 2nd watched build |
+| `teamcity.build.triggered.N.*` | ... | Same fields for the Nth watched build |
+
+Usage in build steps:
+```
+echo "Build count: %teamcity.build.triggered.BuildCount%"
+echo "First: %teamcity.build.triggered.1.BuildConfName% #%teamcity.build.triggered.1.BuildNumber%"
+echo "Second: %teamcity.build.triggered.2.BuildConfName% #%teamcity.build.triggered.2.BuildNumber%"
 ```
 
 ## Triggering User Passthrough
@@ -81,6 +122,17 @@ If the watched build was manually run by a user, the triggered build inherits th
 |--------------------------|----------------------------------------|
 | User (e.g. `admin`) | `admin` |
 | Trigger / Schedule / VCS | `n/a` |
+
+In multi-build mode, the user from the most recently finished watched build is used.
+
+## Validation
+
+The plugin prevents invalid configurations:
+
+- **Self-reference** — A build configuration cannot watch itself (prevents cyclic triggers).
+- **Duplicates** — The same build configuration cannot be added more than once.
+
+These checks are enforced both in the UI (client-side) and at the server level.
 
 ## Logging
 
@@ -93,16 +145,12 @@ To enable DEBUG level logging, add via **Administration > Diagnostics > Logging 
 
 ## Version Format
 
-Versions follow `YYMMDD.N` (e.g. `260402.1`):
+Versions follow `YYMMDD.N` (e.g. `260414.1`). Use `./build.sh` to auto-increment.
 
 | Part | Meaning |
 |------|---------|
-| `YY` | Year (last 2 digits) |
-| `MM` | Month |
-| `DD` | Day |
-| `N` | Sequential build number, starting at `1` |
-
-When releasing, update the version in three places: `pom.xml`, `server/pom.xml`, and `teamcity-plugin.xml`.
+| `YYMMDD` | Build date |
+| `N` | Sequential build number for the day, starting at `1` |
 
 ## License
 

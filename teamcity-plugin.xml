@@ -5,13 +5,14 @@
     <!-- Internal plugin name (no spaces) -->
     <name>finish-build-trigger-plus</name>
     <display-name>Finish Build Trigger (Plus)</display-name>
-    <version>260404.2</version>
+    <version>260414.1</version>
     <description>
       Enhanced Finish Build Trigger that adds:
-      (1) "Trigger build on all enabled and compatible agents" (same as Schedule Trigger),
-      (2) "Time to wait (in minutes)" delay before the triggered build is queued,
-      (3) Build Customization (clean sources, custom parameters),
-      (4) Triggering build information (injects watched build metadata and passes through the triggering user).
+      (1) Conditional multi-build trigger (AND) — watch multiple builds and trigger only when ALL complete,
+      (2) "Trigger build on all enabled and compatible agents" (same as Schedule Trigger),
+      (3) "Time to wait (in minutes)" delay before the triggered build is queued,
+      (4) Build Customization (clean sources, custom parameters),
+      (5) Triggering build information (injects watched build metadata and passes through the triggering user).
     </description>
     <vendor>
       <name>WooJin Kim</name>

@@ -19,23 +19,24 @@ import jetbrains.buildServer.users.SUser;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Polling-based triggering policy for Finish Build Trigger (Plus).
  *
- * <p>Polled every {@link #getPollInterval} seconds (default 60 s).  On each poll:
- * <ol>
- *   <li>Looks up the latest finished build of the watched configuration.</li>
- *   <li>Skips if it is the same build we already triggered for.</li>
- *   <li>If {@code waitMinutes > 0}, waits until {@code finishTime + waitMinutes} before acting.</li>
- *   <li>Creates a {@link BuildCustomizer} carrying the watched build's triggering user
- *       and custom metadata parameters, then enqueues via {@link BuildPromotion#addToQueue}.</li>
- *   <li>Persists the triggered build-id so we don't fire twice for the same build.</li>
- * </ol>
+ * <p>Supports two modes:
+ * <ul>
+ *   <li><b>Single mode</b> — watches one build configuration (backward-compatible).</li>
+ *   <li><b>Multi mode</b> — watches multiple build configurations; triggers only when
+ *       ALL have produced a new finished build since the last trigger (AND condition).</li>
+ * </ul>
+ *
+ * <p>Polled every {@link #getPollInterval} seconds (default 60 s).
  */
 public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
 
@@ -48,6 +49,7 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
     private static final String PARAM_WATCHED_PROJECT_NAME    = "teamcity.build.triggered.ProjectConfName";
     private static final String PARAM_WATCHED_BUILD_NUMBER    = "teamcity.build.triggered.BuildNumber";
     private static final String PARAM_WATCHED_BUILD_ID        = "teamcity.build.triggered.BuildId";
+    private static final String PARAM_WATCHED_BUILD_COUNT     = "teamcity.build.triggered.BuildCount";
 
     private final ProjectManager myProjectManager;
     private final BuildAgentManager myBuildAgentManager;
@@ -60,30 +62,33 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
-    /**
-     * Called once when the trigger is first activated on a build configuration.
-     * We snapshot the current last-finished build so we don't fire immediately.
-     */
     @Override
     public void triggerActivated(@NotNull PolledTriggerContext context)
             throws BuildTriggerException {
 
-        String btId = watchedBuildTypeId(context);
-        if (btId == null) return;
+        String[] btIds = parseWatchedBuildTypeIds(context);
+        if (btIds == null || btIds.length == 0) return;
 
-        SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId);
-        if (watchedBt == null) return;
+        CustomDataStorage storage = context.getCustomDataStorage();
+        boolean multi = btIds.length > 1;
 
-        SFinishedBuild lastBuild = watchedBt.getLastChangesFinished();
-        if (lastBuild != null) {
-            String id = String.valueOf(lastBuild.getBuildId());
-            context.getCustomDataStorage().putValue(
-                    FinishBuildTriggerPlusConstants.LAST_BUILD_ID_KEY, id);
-            LOG.info("[FinishBuildTriggerPlus] triggerActivated: saved initial build id="
-                    + id + " for watched=" + btId);
-        } else {
-            LOG.info("[FinishBuildTriggerPlus] triggerActivated: no finished builds yet"
-                    + " for watched=" + btId);
+        for (String btId : btIds) {
+            SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId);
+            if (watchedBt == null) continue;
+
+            SFinishedBuild lastBuild = watchedBt.getLastChangesFinished();
+            if (lastBuild != null) {
+                String id = String.valueOf(lastBuild.getBuildId());
+                String key = multi
+                        ? FinishBuildTriggerPlusConstants.MULTI_LAST_BUILD_ID_PREFIX + btId
+                        : FinishBuildTriggerPlusConstants.LAST_BUILD_ID_KEY;
+                storage.putValue(key, id);
+                LOG.info("[FinishBuildTriggerPlus] triggerActivated: saved initial build id="
+                        + id + " for watched=" + btId);
+            } else {
+                LOG.info("[FinishBuildTriggerPlus] triggerActivated: no finished builds yet"
+                        + " for watched=" + btId);
+            }
         }
     }
 
@@ -93,22 +98,49 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
     public void triggerBuild(@NotNull PolledTriggerContext context)
             throws BuildTriggerException {
 
-        Map<String, String> props = context.getTriggerDescriptor().getProperties();
-
-        // ── resolve watched build configuration ──────────────────────────────
-        String btId = props.get(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID);
-        if (btId == null || btId.trim().isEmpty()) {
+        String[] btIds = parseWatchedBuildTypeIds(context);
+        if (btIds == null || btIds.length == 0) {
             LOG.warn("[FinishBuildTriggerPlus] No watched build type configured; skipping.");
             return;
         }
 
-        SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId.trim());
+        // Self-reference guard: filter out the current build type
+        String selfId = context.getBuildType().getExternalId();
+        List<String> filtered = new ArrayList<>();
+        for (String id : btIds) {
+            if (id.equals(selfId)) {
+                LOG.warn("[FinishBuildTriggerPlus] Ignoring self-referencing watched build: "
+                        + id);
+            } else {
+                filtered.add(id);
+            }
+        }
+        if (filtered.isEmpty()) {
+            LOG.warn("[FinishBuildTriggerPlus] All watched builds are self-referencing; skipping.");
+            return;
+        }
+        btIds = filtered.toArray(new String[0]);
+
+        if (btIds.length == 1) {
+            triggerBuildSingle(context, btIds[0]);
+        } else {
+            triggerBuildMulti(context, btIds);
+        }
+    }
+
+    // ── Single-build mode (original behavior) ────────────────────────────────
+
+    private void triggerBuildSingle(@NotNull PolledTriggerContext context,
+                                    @NotNull String btId) {
+
+        Map<String, String> props = context.getTriggerDescriptor().getProperties();
+
+        SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId);
         if (watchedBt == null) {
             LOG.warn("[FinishBuildTriggerPlus] Watched build type not found: " + btId);
             return;
         }
 
-        // ── read options ─────────────────────────────────────────────────────
         boolean successfulOnly = "true".equals(
                 props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY));
         boolean allAgents = "true".equals(
@@ -116,7 +148,6 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
         int waitMinutes = parseWaitMinutes(
                 props.get(FinishBuildTriggerPlusConstants.WAIT_MINUTES));
 
-        // ── find latest relevant finished build ───────────────────────────────
         SFinishedBuild latestBuild = successfulOnly
                 ? watchedBt.getLastChangesSuccessfullyFinished()
                 : watchedBt.getLastChangesFinished();
@@ -128,7 +159,6 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
 
         String latestBuildId = String.valueOf(latestBuild.getBuildId());
 
-        // ── skip if we already triggered for this build ──────────────────────
         CustomDataStorage storage = context.getCustomDataStorage();
         String lastTriggeredId = storage.getValue(
                 FinishBuildTriggerPlusConstants.LAST_BUILD_ID_KEY);
@@ -139,48 +169,30 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
             return;
         }
 
-        // ── honour wait delay ────────────────────────────────────────────────
         if (waitMinutes > 0) {
             Date finishDate = latestBuild.getFinishDate();
-            if (finishDate == null) {
-                LOG.debug("[FinishBuildTriggerPlus] Build " + latestBuildId
-                        + " has no finish date yet; skipping.");
-                return;
-            }
-            long triggerAt   = finishDate.getTime() + ((long) waitMinutes * 60_000L);
-            long remaining   = triggerAt - System.currentTimeMillis();
-            if (remaining > 0) {
+            if (finishDate == null) return;
+            long triggerAt = finishDate.getTime() + ((long) waitMinutes * 60_000L);
+            if (System.currentTimeMillis() < triggerAt) {
                 LOG.debug("[FinishBuildTriggerPlus] Delay in effect: "
-                        + (remaining / 1_000) + "s remaining"
-                        + " (watchedBuild=" + latestBuildId + ")");
+                        + ((triggerAt - System.currentTimeMillis()) / 1_000) + "s remaining");
                 return;
             }
         }
 
-        // ── resolve the watched build's triggering user ──────────────────────
         SUser watchedBuildUser = resolveWatchedBuildUser(latestBuild);
-        if (watchedBuildUser != null) {
-            LOG.info("[FinishBuildTriggerPlus] Watched build #" + latestBuildId
-                    + " was triggered by user: " + watchedBuildUser.getUsername());
-        } else {
-            LOG.info("[FinishBuildTriggerPlus] Watched build #" + latestBuildId
-                    + " was not triggered by a user (trigger/schedule/etc.)");
-        }
 
-        // ── build custom metadata parameters ─────────────────────────────────
         Map<String, String> customParams = new HashMap<>();
         customParams.put(PARAM_WATCHED_BUILD_TYPE_ID,    latestBuild.getBuildTypeExternalId());
         customParams.put(PARAM_WATCHED_BUILD_CONF_NAME,  latestBuild.getBuildTypeName());
         customParams.put(PARAM_WATCHED_BUILD_NUMBER,     latestBuild.getBuildNumber());
         customParams.put(PARAM_WATCHED_BUILD_ID,         latestBuildId);
 
-        // Resolve project full path (e.g. "Release / Client / KR / Android")
         SBuildType watchedBuildType = latestBuild.getBuildType();
         if (watchedBuildType != null && watchedBuildType.getProject() != null) {
             customParams.put(PARAM_WATCHED_PROJECT_NAME, watchedBuildType.getProject().getFullName());
         }
 
-        // ── fire! ────────────────────────────────────────────────────────────
         String comment = "Triggered by Finish Build Trigger (Plus)"
                 + " [watched build #" + latestBuildId + "]";
 
@@ -189,26 +201,155 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
         } else {
             BuildCustomizer customizer = context.createBuildCustomizer(watchedBuildUser);
             customizer.addParametersIfAbsent(customParams);
-            BuildPromotion promotion = customizer.createPromotion();
-            promotion.addToQueue(comment);
+            customizer.createPromotion().addToQueue(comment);
             LOG.info("[FinishBuildTriggerPlus] Queued: "
                     + context.getBuildType().getFullName()
                     + " (watchedBuild=" + latestBuildId + ")");
         }
 
-        // ── persist the triggered build id ───────────────────────────────────
         storage.putValue(FinishBuildTriggerPlusConstants.LAST_BUILD_ID_KEY, latestBuildId);
         storage.flush();
         LOG.info("[FinishBuildTriggerPlus] State saved: lastTriggeredBuildId=" + latestBuildId);
     }
 
-    // ── All-agents helper ────────────────────────────────────────────────────
+    // ── Multi-build mode (AND condition) ─────────────────────────────────────
 
     /**
-     * Queues one build per enabled, authorized, compatible agent — identical to the
-     * "Trigger build on all enabled and compatible agents" behaviour of Schedule Trigger.
-     * Each queued build carries the watched-build user context and custom parameters.
+     * Triggers only when ALL watched builds have produced a new finished build
+     * since the last time we triggered.
      */
+    private void triggerBuildMulti(@NotNull PolledTriggerContext context,
+                                   @NotNull String[] btIds) {
+
+        Map<String, String> props = context.getTriggerDescriptor().getProperties();
+
+        boolean successfulOnly = "true".equals(
+                props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY));
+        boolean allAgents = "true".equals(
+                props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_ALL_AGENTS));
+        int waitMinutes = parseWaitMinutes(
+                props.get(FinishBuildTriggerPlusConstants.WAIT_MINUTES));
+
+        CustomDataStorage storage = context.getCustomDataStorage();
+
+        // Check each watched build — all must have a NEW finished build
+        Map<String, SFinishedBuild> newBuilds = new LinkedHashMap<>();
+
+        for (String btId : btIds) {
+            SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId);
+            if (watchedBt == null) {
+                LOG.warn("[FinishBuildTriggerPlus] Multi-mode: watched build not found: " + btId);
+                return;
+            }
+
+            SFinishedBuild latest = successfulOnly
+                    ? watchedBt.getLastChangesSuccessfullyFinished()
+                    : watchedBt.getLastChangesFinished();
+
+            if (latest == null) {
+                LOG.debug("[FinishBuildTriggerPlus] Multi-mode: no finished builds for: " + btId);
+                return;
+            }
+
+            String latestId = String.valueOf(latest.getBuildId());
+            String storageKey = FinishBuildTriggerPlusConstants.MULTI_LAST_BUILD_ID_PREFIX + btId;
+            String lastTriggeredId = storage.getValue(storageKey);
+
+            if (latestId.equals(lastTriggeredId)) {
+                LOG.debug("[FinishBuildTriggerPlus] Multi-mode: " + btId
+                        + " has no new build since last trigger (id=" + latestId + ")");
+                return;
+            }
+
+            newBuilds.put(btId, latest);
+        }
+
+        // ALL watched builds have new finished builds — check wait delay
+        if (waitMinutes > 0) {
+            Date latestFinish = null;
+            for (SFinishedBuild build : newBuilds.values()) {
+                Date fd = build.getFinishDate();
+                if (fd != null && (latestFinish == null || fd.after(latestFinish))) {
+                    latestFinish = fd;
+                }
+            }
+            if (latestFinish != null) {
+                long triggerAt = latestFinish.getTime() + ((long) waitMinutes * 60_000L);
+                long remaining = triggerAt - System.currentTimeMillis();
+                if (remaining > 0) {
+                    LOG.debug("[FinishBuildTriggerPlus] Multi-mode: delay in effect, "
+                            + (remaining / 1_000) + "s remaining");
+                    return;
+                }
+            }
+        }
+
+        // Build custom params with indexed values
+        Map<String, String> customParams = new HashMap<>();
+        customParams.put(PARAM_WATCHED_BUILD_COUNT, String.valueOf(newBuilds.size()));
+
+        int idx = 1;
+        for (Map.Entry<String, SFinishedBuild> entry : newBuilds.entrySet()) {
+            SFinishedBuild build = entry.getValue();
+            String prefix = "teamcity.build.triggered." + idx + ".";
+
+            customParams.put(prefix + "BuildTypeId",   build.getBuildTypeExternalId());
+            customParams.put(prefix + "BuildConfName", build.getBuildTypeName());
+            customParams.put(prefix + "BuildNumber",   build.getBuildNumber());
+            customParams.put(prefix + "BuildId",       String.valueOf(build.getBuildId()));
+
+            SBuildType bt = build.getBuildType();
+            if (bt != null && bt.getProject() != null) {
+                customParams.put(prefix + "ProjectConfName", bt.getProject().getFullName());
+            }
+            idx++;
+        }
+
+        // Resolve user from the most recently finished build
+        SUser watchedBuildUser = null;
+        Date latestFinish = null;
+        for (SFinishedBuild build : newBuilds.values()) {
+            Date fd = build.getFinishDate();
+            if (fd != null && (latestFinish == null || fd.after(latestFinish))) {
+                latestFinish = fd;
+                SUser u = resolveWatchedBuildUser(build);
+                if (u != null) watchedBuildUser = u;
+            }
+        }
+
+        // Fire!
+        StringBuilder ids = new StringBuilder();
+        for (SFinishedBuild b : newBuilds.values()) {
+            if (ids.length() > 0) ids.append(", ");
+            ids.append("#").append(b.getBuildId());
+        }
+        String comment = "Triggered by Finish Build Trigger (Plus)"
+                + " [multi-build: " + ids + "]";
+
+        if (allAgents) {
+            triggerOnAllAgents(context, watchedBuildUser, customParams, comment);
+        } else {
+            BuildCustomizer customizer = context.createBuildCustomizer(watchedBuildUser);
+            customizer.addParametersIfAbsent(customParams);
+            customizer.createPromotion().addToQueue(comment);
+            LOG.info("[FinishBuildTriggerPlus] Multi-mode queued: "
+                    + context.getBuildType().getFullName()
+                    + " (watched builds: " + ids + ")");
+        }
+
+        // Persist all build IDs
+        for (Map.Entry<String, SFinishedBuild> entry : newBuilds.entrySet()) {
+            String storageKey = FinishBuildTriggerPlusConstants.MULTI_LAST_BUILD_ID_PREFIX
+                    + entry.getKey();
+            storage.putValue(storageKey, String.valueOf(entry.getValue().getBuildId()));
+        }
+        storage.flush();
+        LOG.info("[FinishBuildTriggerPlus] Multi-mode state saved for "
+                + newBuilds.size() + " watched builds");
+    }
+
+    // ── All-agents helper ────────────────────────────────────────────────────
+
     private void triggerOnAllAgents(@NotNull PolledTriggerContext context,
                                     @Nullable SUser watchedBuildUser,
                                     @NotNull Map<String, String> customParams,
@@ -270,10 +411,6 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
-    /**
-     * Extracts the user who triggered the watched build.
-     * Returns {@code null} if the build was triggered by another trigger, schedule, etc.
-     */
     @Nullable
     private SUser resolveWatchedBuildUser(@NotNull SFinishedBuild watchedBuild) {
         TriggeredBy triggeredBy = watchedBuild.getTriggeredBy();
@@ -282,10 +419,23 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
         return triggeredBy.getUser();
     }
 
-    private String watchedBuildTypeId(@NotNull PolledTriggerContext context) {
-        String id = context.getTriggerDescriptor().getProperties()
+    /**
+     * Parses the {@code watchedBuildTypeId} property, which may contain a single
+     * external ID or a comma-separated list of external IDs.
+     */
+    @Nullable
+    private String[] parseWatchedBuildTypeIds(@NotNull PolledTriggerContext context) {
+        String raw = context.getTriggerDescriptor().getProperties()
                 .get(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID);
-        return (id != null && !id.trim().isEmpty()) ? id.trim() : null;
+        if (raw == null || raw.trim().isEmpty()) return null;
+
+        String[] parts = raw.split(",");
+        List<String> ids = new ArrayList<>();
+        for (String part : parts) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) ids.add(trimmed);
+        }
+        return ids.isEmpty() ? null : ids.toArray(new String[0]);
     }
 
     private int parseWaitMinutes(String raw) {

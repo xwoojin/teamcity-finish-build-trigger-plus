@@ -13,8 +13,10 @@ import jetbrains.buildServer.web.openapi.PluginDescriptor;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Registers "Finish Build Trigger (Plus)" as a TeamCity build trigger service.
@@ -66,15 +68,37 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
 
         StringBuilder sb = new StringBuilder();
 
-        // Watched build config
-        String btId = props.get(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID);
-        if (btId != null && !btId.isEmpty()) {
-            SBuildType bt = myProjectManager.findBuildTypeByExternalId(btId);
-            sb.append(bt != null ? bt.getFullName() : btId);
+        // Watched build config(s) — may be comma-separated
+        String btIdRaw = props.get(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID);
+        if (btIdRaw != null && !btIdRaw.isEmpty()) {
+            String[] ids = btIdRaw.split(",");
+            if (ids.length == 1) {
+                String btId = ids[0].trim();
+                SBuildType bt = myProjectManager.findBuildTypeByExternalId(btId);
+                sb.append(bt != null ? bt.getFullName() : btId);
+                sb.append(" finishes");
+            } else {
+                // Multi-build mode
+                int count = 0;
+                for (String id : ids) {
+                    String trimmed = id.trim();
+                    if (trimmed.isEmpty()) continue;
+                    if (count > 0) sb.append(" + ");
+                    SBuildType bt = myProjectManager.findBuildTypeByExternalId(trimmed);
+                    if (count < 3) {
+                        sb.append(bt != null ? bt.getName() : trimmed);
+                    }
+                    count++;
+                }
+                if (count > 3) {
+                    sb.append(" (+").append(count - 3).append(" more)");
+                }
+                sb.append(" all finish");
+            }
         } else {
             sb.append("(no build configured)");
+            sb.append(" finishes");
         }
-        sb.append(" finishes");
 
         // Successful-only flag
         if ("true".equals(props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY))) {
@@ -110,15 +134,27 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
         return properties -> {
             List<InvalidProperty> errors = new ArrayList<>();
 
-            String btId = properties.get(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID);
-            if (btId == null || btId.trim().isEmpty()) {
+            String btIdRaw = properties.get(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID);
+            if (btIdRaw == null || btIdRaw.trim().isEmpty()) {
                 errors.add(new InvalidProperty(
                         FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
                         "Build configuration must be specified"));
-            } else if (myProjectManager.findBuildTypeByExternalId(btId.trim()) == null) {
-                errors.add(new InvalidProperty(
-                        FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
-                        "Build configuration not found: " + btId));
+            } else {
+                String[] ids = btIdRaw.split(",");
+                Set<String> seen = new HashSet<>();
+                for (String id : ids) {
+                    String trimmed = id.trim();
+                    if (trimmed.isEmpty()) continue;
+                    if (!seen.add(trimmed)) {
+                        errors.add(new InvalidProperty(
+                                FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
+                                "Duplicate build configuration: " + trimmed));
+                    } else if (myProjectManager.findBuildTypeByExternalId(trimmed) == null) {
+                        errors.add(new InvalidProperty(
+                                FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
+                                "Build configuration not found: " + trimmed));
+                    }
+                }
             }
 
             String waitMins = properties.get(FinishBuildTriggerPlusConstants.WAIT_MINUTES);

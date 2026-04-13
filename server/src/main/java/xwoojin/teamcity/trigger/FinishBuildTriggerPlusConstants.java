@@ -24,8 +24,11 @@ public final class FinishBuildTriggerPlusConstants {
 
     // ── CustomDataStorage keys ───────────────────────────────────────────────
 
-    /** Build-id of the last watched build we already triggered for. */
+    /** Build-id of the last watched build we already triggered for (single mode). */
     public static final String LAST_BUILD_ID_KEY = "lastTriggeredBuildId";
+
+    /** Prefix for per-build-type storage keys in multi-build mode. */
+    public static final String MULTI_LAST_BUILD_ID_PREFIX = "multi.lastBuildId.";
 
     // ── Controller / resource path ───────────────────────────────────────────
 
