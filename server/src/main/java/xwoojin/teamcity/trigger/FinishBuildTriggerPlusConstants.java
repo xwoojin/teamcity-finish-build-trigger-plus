@@ -19,8 +19,14 @@ public final class FinishBuildTriggerPlusConstants {
     /** "true" = queue one build per enabled compatible agent (mirrors Schedule Trigger). */
     public static final String TRIGGER_ON_ALL_AGENTS = "triggerBuildOnAllCompatibleAgents";
 
+    /** "true" = queue the triggered build on the same agent that ran the watched build. */
+    public static final String TRIGGER_ON_SAME_AGENT = "triggerOnSameAgent";
+
     /** Non-negative integer; minutes to wait after watched build finishes before triggering. */
     public static final String WAIT_MINUTES = "waitMinutes";
+
+    /** Positive integer; watched time frame in hours — max span between finish times (AND mode). Default 3. */
+    public static final String AND_TIME_WINDOW_HOURS = "andTimeWindowHours";
 
     // ── CustomDataStorage keys ───────────────────────────────────────────────
 

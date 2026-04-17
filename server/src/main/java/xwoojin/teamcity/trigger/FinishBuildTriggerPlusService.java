@@ -11,6 +11,7 @@ import jetbrains.buildServer.serverSide.ProjectManager;
 import jetbrains.buildServer.serverSide.SBuildType;
 import jetbrains.buildServer.web.openapi.PluginDescriptor;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -70,53 +71,69 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
 
         // Watched build config(s) — may be comma-separated
         String btIdRaw = props.get(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID);
+        List<String> validIds = new ArrayList<>();
         if (btIdRaw != null && !btIdRaw.isEmpty()) {
-            String[] ids = btIdRaw.split(",");
-            if (ids.length == 1) {
-                String btId = ids[0].trim();
-                SBuildType bt = myProjectManager.findBuildTypeByExternalId(btId);
-                sb.append(bt != null ? bt.getFullName() : btId);
-                sb.append(" finishes");
-            } else {
-                // Multi-build mode
-                int count = 0;
-                for (String id : ids) {
-                    String trimmed = id.trim();
-                    if (trimmed.isEmpty()) continue;
-                    if (count > 0) sb.append(" + ");
-                    SBuildType bt = myProjectManager.findBuildTypeByExternalId(trimmed);
-                    if (count < 3) {
-                        sb.append(bt != null ? bt.getName() : trimmed);
-                    }
-                    count++;
-                }
-                if (count > 3) {
-                    sb.append(" (+").append(count - 3).append(" more)");
-                }
-                sb.append(" all finish");
+            for (String id : btIdRaw.split(",")) {
+                String trimmed = id.trim();
+                if (!trimmed.isEmpty()) validIds.add(trimmed);
             }
-        } else {
-            sb.append("(no build configured)");
-            sb.append(" finishes");
         }
 
-        // Successful-only flag
-        if ("true".equals(props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY))) {
-            sb.append(" successfully");
+        boolean successfulOnly = "true".equals(
+                props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY));
+        String qualifier = successfulOnly ? "successful " : "";
+
+        if (validIds.isEmpty()) {
+            sb.append("Wait for a ").append(qualifier).append("build (no build configured)");
+        } else if (validIds.size() == 1) {
+            // Single-build — mirror standard "Finish Build Trigger" phrasing
+            SBuildType bt = findBuildType(validIds.get(0));
+            String name = bt != null ? bt.getFullName() : validIds.get(0);
+            sb.append("Wait for a ").append(qualifier).append("build in: ").append(name);
+        } else {
+            // Multi-build — one full-path build per line
+            sb.append("Wait for all ").append(qualifier).append("builds below to finish:");
+            for (String id : validIds) {
+                SBuildType bt = findBuildType(id);
+                String name = bt != null ? bt.getFullName() : id;
+                sb.append("\n  → ").append(name);
+            }
+
+            // AND time window (only relevant for multi-build)
+            String windowHours = props.get(FinishBuildTriggerPlusConstants.AND_TIME_WINDOW_HOURS);
+            String windowStr = (windowHours != null && !windowHours.trim().isEmpty())
+                    ? windowHours.trim() : "3";
+            sb.append("\n(all must finish within ").append(windowStr).append("h)");
         }
 
         // Wait delay
         String waitMins = props.get(FinishBuildTriggerPlusConstants.WAIT_MINUTES);
         if (waitMins != null && !waitMins.trim().isEmpty() && !"0".equals(waitMins.trim())) {
-            sb.append(", wait ").append(waitMins.trim()).append(" min");
+            sb.append("\nWait ").append(waitMins.trim()).append(" min before triggering");
         }
 
         // All-agents flag
         if ("true".equals(props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_ALL_AGENTS))) {
-            sb.append(", on all compatible agents");
+            sb.append("\nTrigger on all compatible agents");
+        }
+
+        // Same-agent flag
+        if ("true".equals(props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_SAME_AGENT))) {
+            sb.append("\nTrigger on same agent as watched build");
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Finds a build type by external ID first, then by internal ID as fallback.
+     * This ensures triggers remain functional even after build configuration renames.
+     */
+    @Nullable
+    private SBuildType findBuildType(@NotNull String id) {
+        SBuildType bt = myProjectManager.findBuildTypeByExternalId(id);
+        if (bt != null) return bt;
+        return myProjectManager.findBuildTypeById(id);
     }
 
     // ── Core policy ──────────────────────────────────────────────────────────
@@ -142,18 +159,34 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
             } else {
                 String[] ids = btIdRaw.split(",");
                 Set<String> seen = new HashSet<>();
+                List<String> resolvedIds = new ArrayList<>();
                 for (String id : ids) {
                     String trimmed = id.trim();
                     if (trimmed.isEmpty()) continue;
-                    if (!seen.add(trimmed)) {
-                        errors.add(new InvalidProperty(
-                                FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
-                                "Duplicate build configuration: " + trimmed));
-                    } else if (myProjectManager.findBuildTypeByExternalId(trimmed) == null) {
+
+                    // Resolve to current external ID (handles renamed builds)
+                    SBuildType bt = findBuildType(trimmed);
+                    if (bt == null) {
                         errors.add(new InvalidProperty(
                                 FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
                                 "Build configuration not found: " + trimmed));
+                        continue;
                     }
+
+                    String currentId = bt.getExternalId();
+                    if (!seen.add(currentId)) {
+                        errors.add(new InvalidProperty(
+                                FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
+                                "Duplicate build configuration: " + currentId));
+                    } else {
+                        resolvedIds.add(currentId);
+                    }
+                }
+
+                // Refresh stored IDs to current external IDs
+                if (errors.isEmpty() && !resolvedIds.isEmpty()) {
+                    properties.put(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
+                            String.join(",", resolvedIds));
                 }
             }
 
@@ -170,6 +203,22 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
                     errors.add(new InvalidProperty(
                             FinishBuildTriggerPlusConstants.WAIT_MINUTES,
                             "Wait time must be a valid integer"));
+                }
+            }
+
+            String windowHours = properties.get(FinishBuildTriggerPlusConstants.AND_TIME_WINDOW_HOURS);
+            if (windowHours != null && !windowHours.trim().isEmpty()) {
+                try {
+                    int val = Integer.parseInt(windowHours.trim());
+                    if (val <= 0) {
+                        errors.add(new InvalidProperty(
+                                FinishBuildTriggerPlusConstants.AND_TIME_WINDOW_HOURS,
+                                "AND time window must be a positive integer"));
+                    }
+                } catch (NumberFormatException e) {
+                    errors.add(new InvalidProperty(
+                            FinishBuildTriggerPlusConstants.AND_TIME_WINDOW_HOURS,
+                            "AND time window must be a valid integer"));
                 }
             }
 

@@ -73,7 +73,7 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
         boolean multi = btIds.length > 1;
 
         for (String btId : btIds) {
-            SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId);
+            SBuildType watchedBt = findBuildType(btId);
             if (watchedBt == null) continue;
 
             SFinishedBuild lastBuild = watchedBt.getLastChangesFinished();
@@ -135,7 +135,7 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
 
         Map<String, String> props = context.getTriggerDescriptor().getProperties();
 
-        SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId);
+        SBuildType watchedBt = findBuildType(btId);
         if (watchedBt == null) {
             LOG.warn("[FinishBuildTriggerPlus] Watched build type not found: " + btId);
             return;
@@ -145,6 +145,8 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
                 props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY));
         boolean allAgents = "true".equals(
                 props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_ALL_AGENTS));
+        boolean sameAgent = "true".equals(
+                props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_SAME_AGENT));
         int waitMinutes = parseWaitMinutes(
                 props.get(FinishBuildTriggerPlusConstants.WAIT_MINUTES));
 
@@ -198,6 +200,8 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
 
         if (allAgents) {
             triggerOnAllAgents(context, watchedBuildUser, customParams, comment);
+        } else if (sameAgent) {
+            triggerOnSameAgent(context, watchedBuildUser, customParams, comment, latestBuild);
         } else {
             BuildCustomizer customizer = context.createBuildCustomizer(watchedBuildUser);
             customizer.addParametersIfAbsent(customParams);
@@ -227,6 +231,8 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
                 props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY));
         boolean allAgents = "true".equals(
                 props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_ALL_AGENTS));
+        boolean sameAgent = "true".equals(
+                props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_SAME_AGENT));
         int waitMinutes = parseWaitMinutes(
                 props.get(FinishBuildTriggerPlusConstants.WAIT_MINUTES));
 
@@ -236,7 +242,7 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
         Map<String, SFinishedBuild> newBuilds = new LinkedHashMap<>();
 
         for (String btId : btIds) {
-            SBuildType watchedBt = myProjectManager.findBuildTypeByExternalId(btId);
+            SBuildType watchedBt = findBuildType(btId);
             if (watchedBt == null) {
                 LOG.warn("[FinishBuildTriggerPlus] Multi-mode: watched build not found: " + btId);
                 return;
@@ -264,7 +270,31 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
             newBuilds.put(btId, latest);
         }
 
-        // ALL watched builds have new finished builds — check wait delay
+        // ALL watched builds have new finished builds — check AND time window
+        int windowHours = parseAndTimeWindowHours(
+                props.get(FinishBuildTriggerPlusConstants.AND_TIME_WINDOW_HOURS));
+        if (windowHours > 0) {
+            Date earliest = null;
+            Date latest = null;
+            for (SFinishedBuild build : newBuilds.values()) {
+                Date fd = build.getFinishDate();
+                if (fd == null) continue;
+                if (earliest == null || fd.before(earliest)) earliest = fd;
+                if (latest == null || fd.after(latest)) latest = fd;
+            }
+            if (earliest != null && latest != null) {
+                long spanMs = latest.getTime() - earliest.getTime();
+                long windowMs = (long) windowHours * 3_600_000L;
+                if (spanMs > windowMs) {
+                    LOG.info("[FinishBuildTriggerPlus] Multi-mode: time span between builds ("
+                            + (spanMs / 3_600_000L) + "h) exceeds window ("
+                            + windowHours + "h); skipping.");
+                    return;
+                }
+            }
+        }
+
+        // Check wait delay
         if (waitMinutes > 0) {
             Date latestFinish = null;
             for (SFinishedBuild build : newBuilds.values()) {
@@ -328,6 +358,17 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
 
         if (allAgents) {
             triggerOnAllAgents(context, watchedBuildUser, customParams, comment);
+        } else if (sameAgent) {
+            // Use the agent from the most recently finished watched build
+            SFinishedBuild mostRecent = null;
+            for (SFinishedBuild build : newBuilds.values()) {
+                Date fd = build.getFinishDate();
+                if (fd != null && (mostRecent == null
+                        || fd.after(mostRecent.getFinishDate()))) {
+                    mostRecent = build;
+                }
+            }
+            triggerOnSameAgent(context, watchedBuildUser, customParams, comment, mostRecent);
         } else {
             BuildCustomizer customizer = context.createBuildCustomizer(watchedBuildUser);
             customizer.addParametersIfAbsent(customParams);
@@ -402,6 +443,53 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
         }
     }
 
+    // ── Same-agent helper ─────────────────────────────────────────────────────
+
+    /**
+     * Queues the triggered build on the same agent that ran the watched build.
+     * If the agent is unavailable (disconnected, disabled, or unauthorized),
+     * falls back to an unassigned queue entry so the build is not silently lost.
+     */
+    private void triggerOnSameAgent(@NotNull PolledTriggerContext context,
+                                    @Nullable SUser watchedBuildUser,
+                                    @NotNull Map<String, String> customParams,
+                                    @NotNull String comment,
+                                    @Nullable SFinishedBuild watchedBuild) {
+
+        SBuildType buildType = context.getBuildType();
+        SBuildAgent watchedAgent = (watchedBuild != null) ? watchedBuild.getAgent() : null;
+
+        if (watchedAgent == null) {
+            LOG.warn("[FinishBuildTriggerPlus] Same-agent mode: watched build agent not found"
+                    + "; falling back to unassigned queue entry.");
+            BuildCustomizer customizer = context.createBuildCustomizer(watchedBuildUser);
+            customizer.addParametersIfAbsent(customParams);
+            customizer.createPromotion().addToQueue(comment);
+            return;
+        }
+
+        if (!watchedAgent.isRegistered() || !watchedAgent.isEnabled()
+                || !watchedAgent.isAuthorized()) {
+            LOG.warn("[FinishBuildTriggerPlus] Same-agent mode: agent '"
+                    + watchedAgent.getName() + "' is not available (registered="
+                    + watchedAgent.isRegistered() + ", enabled=" + watchedAgent.isEnabled()
+                    + ", authorized=" + watchedAgent.isAuthorized()
+                    + "); falling back to unassigned queue entry.");
+            BuildCustomizer customizer = context.createBuildCustomizer(watchedBuildUser);
+            customizer.addParametersIfAbsent(customParams);
+            customizer.createPromotion().addToQueue(comment);
+            return;
+        }
+
+        BuildCustomizer customizer = context.createBuildCustomizer(watchedBuildUser);
+        customizer.addParametersIfAbsent(customParams);
+        BuildPromotion promotion = customizer.createPromotion();
+        promotion.addToQueue(watchedAgent, comment);
+
+        LOG.info("[FinishBuildTriggerPlus] Same-agent mode: queued on agent '"
+                + watchedAgent.getName() + "' for " + buildType.getFullName());
+    }
+
     // ── Poll interval ────────────────────────────────────────────────────────
 
     @Override
@@ -410,6 +498,17 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Finds a build type by external ID first, then by internal ID as fallback.
+     * This ensures triggers remain functional even after build configuration renames.
+     */
+    @Nullable
+    private SBuildType findBuildType(@NotNull String id) {
+        SBuildType bt = myProjectManager.findBuildTypeByExternalId(id);
+        if (bt != null) return bt;
+        return myProjectManager.findBuildTypeById(id);
+    }
 
     @Nullable
     private SUser resolveWatchedBuildUser(@NotNull SFinishedBuild watchedBuild) {
@@ -436,6 +535,18 @@ public class FinishBuildTriggerPlusTriggeringPolicy extends PolledBuildTrigger {
             if (!trimmed.isEmpty()) ids.add(trimmed);
         }
         return ids.isEmpty() ? null : ids.toArray(new String[0]);
+    }
+
+    private int parseAndTimeWindowHours(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return 3; // default 3 hours
+        try {
+            int v = Integer.parseInt(raw.trim());
+            return v > 0 ? v : 3;
+        } catch (NumberFormatException e) {
+            LOG.warn("[FinishBuildTriggerPlus] Invalid andTimeWindowHours value: '"
+                    + raw + "'; using default 3.");
+            return 3;
+        }
     }
 
     private int parseWaitMinutes(String raw) {

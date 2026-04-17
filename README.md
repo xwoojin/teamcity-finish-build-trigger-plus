@@ -8,6 +8,7 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 |---------|-------------|
 | **Conditional multi-build trigger (AND)** | Watch multiple build configurations and trigger only when ALL of them have completed. e.g. Build A + Build B + Build C must all finish before Build D starts. Self-referencing and duplicate selections are prevented. |
 | **Trigger on all compatible agents** | Queues one build per enabled compatible agent, identical to the Schedule Trigger option. |
+| **Run build on the same agent** | Queues the triggered build on the same agent that ran the watched build. In multi-build mode, the agent from the most recently finished build is used. Falls back to unassigned queue if the agent is unavailable. |
 | **Time to wait (minutes)** | Delays the triggered build by N minutes after the watched build finishes. |
 | **Build Customization** | Supports clean sources, snapshot dependency rebuild, and custom build parameters via the standard TeamCity tab. |
 | **Triggering build information** | Injects watched build metadata as configuration parameters and passes through the triggering user. |
@@ -54,14 +55,15 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 
 | Setting | Description |
 |---------|-------------|
-| **Build configuration** | The build configuration(s) to watch. Use **+ Add build configuration** to add multiple — trigger fires when ALL complete (AND condition). |
+| **Build configuration** | The build configuration(s) to watch. Use **+ Add build configuration** to add multiple — trigger fires when ALL complete (AND condition). Stored IDs are auto-refreshed if a watched build configuration is renamed. |
 
 ### Additional Options
 
 | Setting | Description |
 |---------|-------------|
 | **Trigger after successful build only** | Only trigger when the watched build finishes with SUCCESS status. |
-| **Trigger build on all enabled and compatible agents** | Queue a separate build for each enabled compatible agent. |
+| **Trigger build on all enabled and compatible agents** | Queue a separate build for each enabled compatible agent. Mutually exclusive with **Run build on the same agent**. |
+| **Run build on the same agent** | Queue the triggered build on the agent that ran the watched build. In multi-build mode, the agent from the most recently finished watched build is used. If the agent is unavailable, falls back to the default queue. |
 
 ### Delay Trigger Options
 
@@ -71,7 +73,13 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 
 ### Build Customization
 
-The standard TeamCity **Build Customization** tab is available, allowing you to configure clean checkout and custom build parameters — the same as the built-in Finish Build Trigger.
+The standard TeamCity **Build Customization** tab is available for configuring clean checkout and custom build parameters.
+
+In addition, a **Time Settings** section is injected into the Build Customization tab when multiple watched builds are configured:
+
+| Setting | Description |
+|---------|-------------|
+| **Watched Time Frame (Hours)** | *(Multi-build only)* Maximum hours between the earliest and latest watched build finish times. If the span exceeds this window, the trigger will not fire. Default: **3 hours**. |
 
 ## Injected Build Parameters
 

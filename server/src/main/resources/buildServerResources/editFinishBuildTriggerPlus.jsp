@@ -14,10 +14,12 @@
       <label>Build configuration:<l:star/></label>
     </td>
     <td style="vertical-align: baseline;">
+      <%-- Use Controller-resolved IDs (handles renames) if available, otherwise raw property --%>
+      <c:set var="watchedIds" value="${not empty resolvedWatchedBuildTypeIds ? resolvedWatchedBuildTypeIds : propertiesBean.properties['watchedBuildTypeId']}" />
       <input type="hidden"
              id="watchedBuildTypeId"
              name="prop:watchedBuildTypeId"
-             value="${propertiesBean.properties['watchedBuildTypeId']}"/>
+             value="${watchedIds}"/>
 
       <div id="buildSelectorsContainer"></div>
 
@@ -66,8 +68,11 @@
             }
             $j('#watchedBuildTypeId').val(ids.join(','));
 
+            var isMulti = ids.length > 1;
             var note = document.getElementById('multiBuildNote');
-            if (note) note.style.display = ids.length > 1 ? '' : 'none';
+            if (note) note.style.display = isMulti ? '' : 'none';
+            var twRow = document.getElementById('andTimeWindowRow');
+            if (twRow) twRow.style.display = isMulti ? '' : 'none';
 
             updateRemoveButtons();
           }
@@ -202,21 +207,163 @@
             addSelector('');
           };
 
+          // Resolve a stored ID (possibly a stale external ID or an internal ID)
+          // to the current external ID via TC REST API. Returns a Promise.
+          function resolveId(storedId) {
+            return new Promise(function(resolve) {
+              if (!storedId) { resolve(''); return; }
+              $j.ajax({
+                url: window['base_uri'] ? window['base_uri'] + '/app/rest/buildTypes/id:' + encodeURIComponent(storedId) + '?fields=id'
+                                        : '/app/rest/buildTypes/id:' + encodeURIComponent(storedId) + '?fields=id',
+                type: 'GET',
+                dataType: 'xml',
+                headers: { 'Accept': 'application/xml' },
+                success: function(data) {
+                  try {
+                    var bt = data.getElementsByTagName('buildType')[0] || data.documentElement;
+                    var resolved = bt && bt.getAttribute ? bt.getAttribute('id') : '';
+                    resolve(resolved || storedId);
+                  } catch (e) {
+                    resolve(storedId);
+                  }
+                },
+                error: function() {
+                  // Not found — render with original id; the selector will show empty but won't break
+                  resolve(storedId);
+                }
+              });
+            });
+          }
+
           var initialValue = $j('#watchedBuildTypeId').val() || '';
           if (initialValue) {
             var ids = initialValue.split(',');
+            var resolvePromises = [];
             for (var i = 0; i < ids.length; i++) {
               var trimmed = ids[i].replace(/^\s+|\s+$/g, '');
-              if (trimmed) addSelector(trimmed);
+              if (trimmed) resolvePromises.push(resolveId(trimmed));
+            }
+            if (resolvePromises.length === 0) {
+              addSelector('');
+              updateHiddenInput();
+            } else {
+              Promise.all(resolvePromises).then(function(resolvedIds) {
+                for (var k = 0; k < resolvedIds.length; k++) {
+                  addSelector(resolvedIds[k]);
+                }
+                // Fix: set initial visibility of multi-build UI elements
+                updateHiddenInput();
+              });
             }
           } else {
             addSelector('');
+            // Fix: set initial visibility of multi-build UI elements
+            updateHiddenInput();
           }
         })();
       </script>
     </td>
   </tr>
 </l:settingsGroup>
+
+<%-- Hidden holder for andTimeWindowHours property (injected into Build Customization tab via JS) --%>
+<div style="display:none;">
+  <props:textProperty name="andTimeWindowHours" id="andTimeWindowHoursInput" style="width: 5em;" maxlength="5"/>
+</div>
+
+<script type="text/javascript">
+  /**
+   * Injects "Time Settings" section into the Build Customization tab,
+   * between "General settings" and "Build parameters".
+   */
+  (function() {
+    var initialVal = $j('#andTimeWindowHoursInput').val() || '';
+
+    function injectTimeSettings() {
+      // Find the Build Customization tab content
+      var dialog = $j('.modalDialog').length ? $j('.modalDialog') : $j('.dialog');
+      if (!dialog.length) return false;
+
+      // Find section headers — look for "Build parameters" text
+      var buildParamsHeader = null;
+      dialog.find('.groupBox, .subHeader, .title, .group-header, th, td').each(function() {
+        var text = $j(this).text().trim();
+        if (text === 'Build parameters') {
+          buildParamsHeader = $j(this).closest('tr, .group, .settingsBlock, table');
+          return false;
+        }
+      });
+
+      if (!buildParamsHeader || !buildParamsHeader.length) return false;
+
+      // Check if already injected
+      if ($j('#fbtpTimeSettingsSection').length) return true;
+
+      // Build the "Time Settings" section
+      var section = $j(
+        '<tr id="fbtpTimeSettingsSection">' +
+          '<td colspan="2" style="padding: 0;">' +
+            '<table class="runnerFormTable" style="width:100%; margin: 0;">' +
+              '<tr class="groupingTitle">' +
+                '<td colspan="2">Time Settings</td>' +
+              '</tr>' +
+              '<tr id="fbtpTimeFrameRow">' +
+                '<td style="width:200px; vertical-align: baseline;">' +
+                  '<label for="fbtpTimeFrameInput">Watched Time Frame (Hours):</label>' +
+                '</td>' +
+                '<td>' +
+                  '<input type="text" id="fbtpTimeFrameInput" ' +
+                    'style="width:5em;" maxlength="5" ' +
+                    'value="' + initialVal.replace(/"/g, '&quot;') + '"/>' +
+                  '<span class="smallNote" style="margin-left:4px;">' +
+                    'All watched builds must finish within this window. Default: 3 hours.' +
+                  '</span>' +
+                  '<span class="error" id="error_andTimeWindowHours" style="display:block;"></span>' +
+                '</td>' +
+              '</tr>' +
+            '</table>' +
+          '</td>' +
+        '</tr>'
+      );
+
+      // Insert before "Build parameters" section
+      buildParamsHeader.before(section);
+
+      // Sync value back to the hidden prop input
+      $j('#fbtpTimeFrameInput').on('input change', function() {
+        $j('#andTimeWindowHoursInput').val($j(this).val());
+      });
+
+      // Show/hide based on multi-build selection
+      function updateTimeFrameVisibility() {
+        var val = $j('#watchedBuildTypeId').val() || '';
+        var ids = val.split(',').filter(function(s) { return s.trim() !== ''; });
+        var isMulti = ids.length > 1;
+        $j('#fbtpTimeSettingsSection').toggle(isMulti);
+      }
+      updateTimeFrameVisibility();
+
+      // Observe hidden input changes
+      var observer = new MutationObserver(function() { updateTimeFrameVisibility(); });
+      var hiddenInput = document.getElementById('watchedBuildTypeId');
+      if (hiddenInput) {
+        observer.observe(hiddenInput, { attributes: true, attributeFilter: ['value'] });
+      }
+      // Also poll for changes (jQuery .val() doesn't trigger MutationObserver)
+      setInterval(updateTimeFrameVisibility, 500);
+
+      return true;
+    }
+
+    // Retry injection — Build Customization tab may load lazily
+    var attempts = 0;
+    var timer = setInterval(function() {
+      if (injectTimeSettings() || ++attempts > 30) {
+        clearInterval(timer);
+      }
+    }, 300);
+  })();
+</script>
 
 <%-- ================================================================== --%>
 <%-- 2. Additional Options                                                --%>
@@ -232,8 +379,20 @@
   <tr>
     <td class="noBorder">&nbsp;</td>
     <td class="noBorder">
-      <props:checkboxProperty name="triggerBuildOnAllCompatibleAgents"/>
+      <props:checkboxProperty name="triggerBuildOnAllCompatibleAgents"
+                              onclick="if(this.checked){$j('#triggerOnSameAgent').prop('checked',false);}"/>
       <label for="triggerBuildOnAllCompatibleAgents">Trigger build on all enabled and compatible agents</label>
+    </td>
+  </tr>
+  <tr>
+    <td class="noBorder">&nbsp;</td>
+    <td class="noBorder">
+      <props:checkboxProperty name="triggerOnSameAgent"
+                              onclick="if(this.checked){$j('#triggerBuildOnAllCompatibleAgents').prop('checked',false);}"/>
+      <label for="triggerOnSameAgent">Run build on the same agent</label>
+      <div class="smallNote" style="margin-left: 20px;">
+        Queues on the agent that ran the watched build. Falls back to default queue if unavailable.
+      </div>
     </td>
   </tr>
 </l:settingsGroup>

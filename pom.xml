@@ -7,7 +7,7 @@
 
   <groupId>xwoojin.teamcity</groupId>
   <artifactId>finish-build-trigger-plus</artifactId>
-  <version>260414.1</version>
+  <version>260417.3</version>
   <packaging>pom</packaging>
   <name>Finish Build Trigger (Plus)</name>
 

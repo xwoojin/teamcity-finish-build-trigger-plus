@@ -55,12 +55,40 @@ public class FinishBuildTriggerPlusController extends BaseController {
                                     @NotNull HttpServletResponse response) throws Exception {
         ModelAndView mv = new ModelAndView(myJspPath);
 
+        // Self-reference prevention: resolve current build type
         String externalId = resolveBuildTypeExternalId(request);
         if (externalId != null) {
             mv.getModel().put("currentBuildTypeExternalId", externalId);
             LOG.debug("[FinishBuildTriggerPlus] Resolved current build type: " + externalId);
         } else {
             LOG.debug("[FinishBuildTriggerPlus] Could not resolve current build type from request");
+        }
+
+        // Resolve watched build IDs to current external IDs (handles renames)
+        String watchedRaw = request.getParameter("prop:watchedBuildTypeId");
+        if (watchedRaw != null && !watchedRaw.trim().isEmpty()) {
+            StringBuilder resolved = new StringBuilder();
+            for (String id : watchedRaw.split(",")) {
+                String trimmed = id.trim();
+                if (trimmed.isEmpty()) continue;
+
+                SBuildType bt = myProjectManager.findBuildTypeByExternalId(trimmed);
+                if (bt == null) {
+                    bt = myProjectManager.findBuildTypeById(trimmed);
+                }
+
+                if (bt != null) {
+                    if (resolved.length() > 0) resolved.append(",");
+                    resolved.append(bt.getExternalId());
+                } else {
+                    // Keep original ID if truly not found
+                    if (resolved.length() > 0) resolved.append(",");
+                    resolved.append(trimmed);
+                    LOG.warn("[FinishBuildTriggerPlus] Could not resolve watched build ID: "
+                            + trimmed);
+                }
+            }
+            mv.getModel().put("resolvedWatchedBuildTypeIds", resolved.toString());
         }
 
         return mv;
