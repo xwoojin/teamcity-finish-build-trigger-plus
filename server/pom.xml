@@ -8,7 +8,7 @@
   <parent>
     <groupId>xwoojin.teamcity</groupId>
     <artifactId>finish-build-trigger-plus</artifactId>
-    <version>260419.2</version>
+    <version>260419.3</version>
   </parent>
 
   <artifactId>finish-build-trigger-plus-server</artifactId>
