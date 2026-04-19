@@ -7,7 +7,7 @@
 
   <groupId>xwoojin.teamcity</groupId>
   <artifactId>finish-build-trigger-plus</artifactId>
-  <version>260417.3</version>
+  <version>260419.2</version>
   <packaging>pom</packaging>
   <name>Finish Build Trigger (Plus)</name>
 
@@ -20,7 +20,7 @@
     <maven.compiler.target>11</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-    <!-- TeamCity server home (로컬 설치 경로) -->
+    <!-- TeamCity server home (local install path) -->
     <teamcity.home>C:/Users/wooji/ClaudeCode/Server</teamcity.home>
     <teamcity.lib>${teamcity.home}/webapps/ROOT/WEB-INF/lib</teamcity.lib>
     <teamcity.tomcat.lib>${teamcity.home}/lib</teamcity.tomcat.lib>

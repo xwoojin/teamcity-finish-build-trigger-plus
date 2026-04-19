@@ -81,10 +81,10 @@ public class FinishBuildTriggerPlusController extends BaseController {
                     if (resolved.length() > 0) resolved.append(",");
                     resolved.append(bt.getExternalId());
                 } else {
-                    // Keep original ID if truly not found
-                    if (resolved.length() > 0) resolved.append(",");
-                    resolved.append(trimmed);
-                    LOG.warn("[FinishBuildTriggerPlus] Could not resolve watched build ID: "
+                    // Deleted / unresolvable — drop from the list shown in the dialog.
+                    // The cleanup listener normally handles this in real time; this is a
+                    // safety net so stale IDs don't surface in the edit UI as broken selectors.
+                    LOG.warn("[FinishBuildTriggerPlus] Dropping unresolvable watched build ID from edit dialog: "
                             + trimmed);
                 }
             }

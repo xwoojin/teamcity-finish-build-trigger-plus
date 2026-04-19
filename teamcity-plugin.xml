@@ -5,7 +5,7 @@
     <!-- Internal plugin name (no spaces) -->
     <name>finish-build-trigger-plus</name>
     <display-name>Finish Build Trigger (Plus)</display-name>
-    <version>260417.3</version>
+    <version>260419.2</version>
     <description>
       Enhanced Finish Build Trigger that adds:
       (1) Conditional multi-build trigger (AND) — watch multiple builds and trigger only when ALL complete,

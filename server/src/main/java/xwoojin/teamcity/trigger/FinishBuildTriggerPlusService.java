@@ -83,19 +83,21 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
                 props.get(FinishBuildTriggerPlusConstants.AFTER_SUCCESSFUL_BUILD_ONLY));
         String qualifier = successfulOnly ? "successful " : "";
 
+        final String DELETED_LABEL = "<non-existent (deleted) build configuration>";
+
         if (validIds.isEmpty()) {
             sb.append("Wait for a ").append(qualifier).append("build (no build configured)");
         } else if (validIds.size() == 1) {
             // Single-build — mirror standard "Finish Build Trigger" phrasing
             SBuildType bt = findBuildType(validIds.get(0));
-            String name = bt != null ? bt.getFullName() : validIds.get(0);
+            String name = bt != null ? bt.getFullName() : DELETED_LABEL;
             sb.append("Wait for a ").append(qualifier).append("build in: ").append(name);
         } else {
             // Multi-build — one full-path build per line
             sb.append("Wait for all ").append(qualifier).append("builds below to finish:");
             for (String id : validIds) {
                 SBuildType bt = findBuildType(id);
-                String name = bt != null ? bt.getFullName() : id;
+                String name = bt != null ? bt.getFullName() : DELETED_LABEL;
                 sb.append("\n  → ").append(name);
             }
 
@@ -167,9 +169,11 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
                     // Resolve to current external ID (handles renamed builds)
                     SBuildType bt = findBuildType(trimmed);
                     if (bt == null) {
-                        errors.add(new InvalidProperty(
-                                FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
-                                "Build configuration not found: " + trimmed));
+                        // Silently drop deleted/unresolvable IDs — the cleanup
+                        // listener should have handled this already; this is a
+                        // safety net for edge cases.
+                        LOG.info("[FinishBuildTriggerPlus] Dropping deleted watched build on save: "
+                                + trimmed);
                         continue;
                     }
 
@@ -183,8 +187,12 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
                     }
                 }
 
-                // Refresh stored IDs to current external IDs
-                if (errors.isEmpty() && !resolvedIds.isEmpty()) {
+                if (resolvedIds.isEmpty() && errors.isEmpty()) {
+                    errors.add(new InvalidProperty(
+                            FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
+                            "Build configuration must be specified"));
+                } else if (errors.isEmpty()) {
+                    // Refresh stored IDs to current external IDs (drops deleted)
                     properties.put(FinishBuildTriggerPlusConstants.WATCHED_BUILD_TYPE_ID,
                             String.join(",", resolvedIds));
                 }

@@ -6,6 +6,26 @@
              type="jetbrains.buildServer.controllers.BasePropertiesBean"/>
 
 <%-- ================================================================== --%>
+<%-- 0. Trigger Chain link (requires trigger-chain-viewer plugin)        --%>
+<%-- ================================================================== --%>
+<c:if test="${not empty currentBuildTypeExternalId}">
+  <tr>
+    <td colspan="2" class="noBorder" style="padding-bottom: 8px;">
+      <span class="smallNote">
+        View the
+        <a href="<c:url value='/viewType.html?buildTypeId=${currentBuildTypeExternalId}&tab=triggerChainView'/>"
+           target="_blank" rel="noopener">trigger chain</a>
+        or
+        <a href="<c:url value='/viewType.html?buildTypeId=${currentBuildTypeExternalId}&tab=triggerUsageView'/>"
+           target="_blank" rel="noopener">trigger usage</a>
+        for this build configuration.
+        <em>(Requires the Trigger Chain Viewer plugin.)</em>
+      </span>
+    </td>
+  </tr>
+</c:if>
+
+<%-- ================================================================== --%>
 <%-- 1. Build configuration(s) to watch                                  --%>
 <%-- ================================================================== --%>
 <l:settingsGroup title="Finish Build Trigger (Plus) Settings">

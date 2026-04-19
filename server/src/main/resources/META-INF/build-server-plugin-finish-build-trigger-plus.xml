@@ -21,4 +21,8 @@
   <bean id="finishBuildTriggerPlusController"
         class="xwoojin.teamcity.trigger.FinishBuildTriggerPlusController"/>
 
+  <!-- Cleanup listener – auto-removes deleted build configurations from watched lists -->
+  <bean id="finishBuildTriggerPlusCleanupListener"
+        class="xwoojin.teamcity.trigger.FinishBuildTriggerPlusCleanupListener"/>
+
 </beans>
