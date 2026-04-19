@@ -12,6 +12,8 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 | **Time to wait (minutes)** | Delays the triggered build by N minutes after the watched build finishes. |
 | **Build Customization** | Supports clean sources, snapshot dependency rebuild, and custom build parameters via the standard TeamCity tab. |
 | **Triggering build information** | Injects watched build metadata as configuration parameters and passes through the triggering user. |
+| **Deleted-build auto-cleanup** | When a watched build configuration is deleted, its ID is automatically removed from every trigger that referenced it — no stale entries, no "Build configuration not found" errors on save. |
+| **Trigger Chain Viewer integration** | The trigger edit dialog links out to the companion [Trigger Chain Viewer](https://github.com/xwoojin/teamcity-trigger-chain-viewer) plugin (when installed), so you can inspect the full downstream chain or reverse usage without leaving the settings page. |
 
 ## Requirements
 
@@ -139,6 +141,7 @@ The plugin prevents invalid configurations:
 
 - **Self-reference** — A build configuration cannot watch itself (prevents cyclic triggers).
 - **Duplicates** — The same build configuration cannot be added more than once.
+- **Deleted references** — If a watched build configuration is deleted, its ID is silently removed from every trigger referencing it (via a `ProjectsModelListener`), the edit dialog filters unresolvable IDs out of its model, and `describeTrigger` falls back to `<non-existent (deleted) build configuration>` to mirror TeamCity's built-in trigger.
 
 These checks are enforced both in the UI (client-side) and at the server level.
 
