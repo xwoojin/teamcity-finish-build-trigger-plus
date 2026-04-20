@@ -58,6 +58,7 @@
           var selectorIndex = 0;
           var selections = {};    // idx -> externalId
           var errorDivs   = {};   // idx -> error div element
+          var renderers   = {};   // idx -> function(selectedId) that re-renders the React selector
 
           // ── Current build type external ID (from server) ──
           var currentBtId = '<c:out value="${currentBuildTypeExternalId}" default="" />';
@@ -95,6 +96,33 @@
             if (twRow) twRow.style.display = isMulti ? '' : 'none';
 
             updateRemoveButtons();
+            refreshAllSelectors();
+          }
+
+          // Re-render every selector so its dropdown filter reflects the
+          // current selections in other rows (selected builds disappear
+          // from other selectors' lists).
+          function refreshAllSelectors() {
+            for (var key in renderers) {
+              if (renderers.hasOwnProperty(key) && typeof renderers[key] === 'function') {
+                renderers[key](selections[key] || null);
+              }
+            }
+          }
+
+          // Build the set of build-type IDs to hide from selector #currentIdx.
+          // Hides: the current build configuration itself + every other
+          // already-selected build configuration.
+          function buildExcludeSet(currentIdx) {
+            var excl = {};
+            if (currentBtId) excl[currentBtId] = true;
+            for (var key in selections) {
+              if (!selections.hasOwnProperty(key)) continue;
+              if (String(key) === String(currentIdx)) continue;
+              var v = selections[key];
+              if (v) excl[v] = true;
+            }
+            return excl;
           }
 
           function updateRemoveButtons() {
@@ -163,6 +191,7 @@
                 capturedRow.parentNode.removeChild(capturedRow);
                 delete selections[capturedIdx];
                 delete errorDivs[capturedIdx];
+                delete renderers[capturedIdx];
                 updateHiddenInput();
               };
             })(idx, row);
@@ -178,33 +207,39 @@
             row.appendChild(errDiv);
             document.getElementById('buildSelectorsContainer').appendChild(row);
 
-            // Render function — can be recalled to reset the selector
+            // Render function — can be recalled to reset the selector or
+            // to refresh its dropdown filter when selections elsewhere change.
             var renderReactSelector = function(selectedId) {
               ReactUIPromise.then(function(ReactUI) {
+                var excl = buildExcludeSet(idx);
                 var props = {
+                  // Hide the current build type and any already-selected builds
+                  // from this selector's dropdown list. The predicate form is
+                  // the widely-supported filter API on ProjectBuildTypeSelect.
+                  filter: function(item) {
+                    if (!item || !item.id) return true;
+                    if (item.nodeType && item.nodeType !== 'bt') return true; // keep projects visible
+                    return !excl[item.id];
+                  },
                   onSelect: function(item) {
                     var newId = item ? item.id : '';
                     clearError(idx);
 
-                    // Self-reference check
+                    // Self-reference check (defensive — should be filtered out)
                     if (newId && currentBtId && newId === currentBtId) {
                       showError(idx,
                         'Cannot watch the current build configuration itself.');
                       selections[idx] = '';
                       updateHiddenInput();
-                      // Re-render to clear the visual selection
-                      renderReactSelector(null);
                       return;
                     }
 
-                    // Duplicate check (by external ID)
+                    // Duplicate check (defensive — should be filtered out)
                     if (isDuplicate(newId, idx)) {
                       showError(idx,
                         'This build configuration is already selected.');
                       selections[idx] = '';
                       updateHiddenInput();
-                      // Re-render to clear the visual selection
-                      renderReactSelector(null);
                       return;
                     }
 
@@ -219,6 +254,7 @@
               });
             };
 
+            renderers[idx] = renderReactSelector;
             renderReactSelector(initialId);
             updateRemoveButtons();
           }

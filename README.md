@@ -7,6 +7,7 @@ A TeamCity server plugin that enhances the built-in **Finish Build Trigger** wit
 | Feature | Description |
 |---------|-------------|
 | **Conditional multi-build trigger (AND)** | Watch multiple build configurations and trigger only when ALL of them have completed. e.g. Build A + Build B + Build C must all finish before Build D starts. Self-referencing and duplicate selections are prevented. |
+| **Event-driven trigger** | Reacts to TeamCity's `buildFinished` event directly, matching the built-in Finish Build Trigger's near-instant response. Both single-watch and multi-watch (AND) modes fire within milliseconds of the last qualifying build finishing — no more "~30s average delay" that the old polling-based implementation had. |
 | **Trigger on all compatible agents** | Queues one build per enabled compatible agent, identical to the Schedule Trigger option. |
 | **Run build on the same agent** | Queues the triggered build on the same agent that ran the watched build. In multi-build mode, the agent from the most recently finished build is used. Falls back to unassigned queue if the agent is unavailable. |
 | **Time to wait (minutes)** | Delays the triggered build by N minutes after the watched build finishes. |
@@ -96,6 +97,9 @@ When the trigger watches a single build configuration, the following **configura
 | `teamcity.build.triggered.ProjectConfName` | `Project / SubProject / Android` | Full project path of the watched build configuration |
 | `teamcity.build.triggered.BuildNumber` | `42` | Build number of the specific watched build |
 | `teamcity.build.triggered.BuildId` | `801` | Internal numeric build ID |
+| `teamcity.build.triggered.BuildStatus` | `success` | Status of the watched build: `success`, `failure`, or `canceled` |
+
+> **Note:** With *Trigger after successful build only* enabled, `BuildStatus` is always `success`. The parameter is useful when the trigger fires on any finished build and the triggered build needs to branch on the outcome.
 
 Usage in build steps:
 ```
@@ -114,6 +118,7 @@ When multiple build configurations are watched, indexed parameters are injected:
 | `teamcity.build.triggered.1.ProjectConfName` | `Project / Android` | Full project path of the 1st watched build |
 | `teamcity.build.triggered.1.BuildNumber` | `42` | Build number of the 1st watched build |
 | `teamcity.build.triggered.1.BuildId` | `801` | Internal build ID of the 1st watched build |
+| `teamcity.build.triggered.1.BuildStatus` | `success` | Status of the 1st watched build: `success`, `failure`, or `canceled` |
 | `teamcity.build.triggered.2.*` | ... | Same fields for the 2nd watched build |
 | `teamcity.build.triggered.N.*` | ... | Same fields for the Nth watched build |
 
@@ -139,8 +144,8 @@ In multi-build mode, the user from the most recently finished watched build is u
 
 The plugin prevents invalid configurations:
 
-- **Self-reference** — A build configuration cannot watch itself (prevents cyclic triggers).
-- **Duplicates** — The same build configuration cannot be added more than once.
+- **Self-reference** — A build configuration cannot watch itself (prevents cyclic triggers). The current build configuration is hidden from every selector's dropdown so it is not even selectable.
+- **Duplicates** — The same build configuration cannot be added more than once. Already-selected builds are hidden from the remaining selectors' dropdowns, so only untaken options appear.
 - **Deleted references** — If a watched build configuration is deleted, its ID is silently removed from every trigger referencing it (via a `ProjectsModelListener`), the edit dialog filters unresolvable IDs out of its model, and `describeTrigger` falls back to `<non-existent (deleted) build configuration>` to mirror TeamCity's built-in trigger.
 
 These checks are enforced both in the UI (client-side) and at the server level.

@@ -25,4 +25,9 @@
   <bean id="finishBuildTriggerPlusCleanupListener"
         class="xwoojin.teamcity.trigger.FinishBuildTriggerPlusCleanupListener"/>
 
+  <!-- Event-based triggering engine – reacts to buildFinished for ~0s response time.
+       Replaces the old polling loop (which used to wait up to 60 s per tick). -->
+  <bean id="finishBuildTriggerPlusBuildListener"
+        class="xwoojin.teamcity.trigger.FinishBuildTriggerPlusBuildListener"/>
+
 </beans>

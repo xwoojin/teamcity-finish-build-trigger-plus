@@ -143,7 +143,8 @@ public class FinishBuildTriggerPlusService extends BuildTriggerService {
     @NotNull
     @Override
     public BuildTriggeringPolicy getBuildTriggeringPolicy() {
-        return new FinishBuildTriggerPlusTriggeringPolicy(myProjectManager, myBuildAgentManager);
+        // Real triggering is event-driven; see FinishBuildTriggerPlusBuildListener.
+        return new FinishBuildTriggerPlusTriggeringPolicy();
     }
 
     // ── Settings validation ───────────────────────────────────────────────────
