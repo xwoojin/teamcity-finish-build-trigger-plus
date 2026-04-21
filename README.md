@@ -86,30 +86,43 @@ In addition, a **Time Settings** section is injected into the Build Customizatio
 
 ## Injected Build Parameters
 
-The triggered build always receives **indexed** configuration parameters, regardless of whether the trigger is in single- or multi-build mode. This means build scripts can be written uniformly — a single-watch trigger produces `teamcity.build.triggered.1.*` and `BuildCount=1`, while a multi-watch trigger extends the same schema to `.2.*`, `.3.*`, etc.
+The triggered build always receives **indexed** configuration parameters, regardless of whether the trigger is in single- or multi-build mode. This means build scripts can be written uniformly — a single-watch trigger produces `env.triggered.1.*` and `env.triggered.BuildCount=1`, while a multi-watch trigger extends the same schema to `.2.*`, `.3.*`, etc.
+
+All parameters use the `env.` prefix, so TeamCity exposes them **both** as configuration parameters (`%env.triggered.1.BuildNumber%` in build steps) **and** as environment variables on the build agent (`$TRIGGERED_1_BUILDNUMBER` in shell scripts / `%TRIGGERED_1_BUILDNUMBER%` in Windows batch).
 
 | Parameter | Example | Description |
 |-----------|---------|-------------|
-| `teamcity.build.triggered.BuildCount` | `1` or `3` | Number of watched builds (always `1` in single mode, `N` in multi mode) |
-| `teamcity.build.triggered.1.BuildTypeId` | `Dev_BuildA` | External ID of the 1st watched build configuration |
-| `teamcity.build.triggered.1.BuildConfName` | `Build A` | Name of the 1st watched build configuration |
-| `teamcity.build.triggered.1.ProjectConfName` | `Project / SubProject / Android` | Full project path of the 1st watched build |
-| `teamcity.build.triggered.1.BuildNumber` | `42` | Build number of the 1st watched build |
-| `teamcity.build.triggered.1.BuildId` | `801` | Internal numeric build ID of the 1st watched build |
-| `teamcity.build.triggered.1.BuildStatus` | `success` | Status of the 1st watched build: `success`, `failure`, or `canceled` |
-| `teamcity.build.triggered.2.*` | ... | Same fields for the 2nd watched build *(multi mode only)* |
-| `teamcity.build.triggered.N.*` | ... | Same fields for the Nth watched build *(multi mode only)* |
+| `env.triggered.BuildCount` | `1` or `3` | Number of watched builds (always `1` in single mode, `N` in multi mode) |
+| `env.triggered.1.BuildTypeId` | `Dev_BuildA` | External ID of the 1st watched build configuration |
+| `env.triggered.1.BuildConfName` | `Build A` | Name of the 1st watched build configuration |
+| `env.triggered.1.ProjectConfName` | `Project / SubProject / Android` | Full project path of the 1st watched build |
+| `env.triggered.1.BuildNumber` | `42` | Build number of the 1st watched build |
+| `env.triggered.1.BuildId` | `801` | Internal numeric build ID of the 1st watched build |
+| `env.triggered.1.BuildStatus` | `success` | Status of the 1st watched build: `success`, `failure`, or `canceled` |
+| `env.triggered.2.*` | ... | Same fields for the 2nd watched build *(multi mode only)* |
+| `env.triggered.N.*` | ... | Same fields for the Nth watched build *(multi mode only)* |
 
 > **Note:** With *Trigger after successful build only* enabled, every `BuildStatus` is `success`. The parameter is useful when the trigger fires on any finished build and the triggered build needs to branch on the outcome.
 
-Usage in build steps:
+Usage as configuration parameters (TeamCity build step syntax):
 ```
-echo "Build count: %teamcity.build.triggered.BuildCount%"
-echo "Triggered by: %teamcity.build.triggered.1.ProjectConfName% / %teamcity.build.triggered.1.BuildConfName% #%teamcity.build.triggered.1.BuildNumber%"
-echo "Status: %teamcity.build.triggered.1.BuildStatus%"
+echo "Build count: %env.triggered.BuildCount%"
+echo "Triggered by: %env.triggered.1.ProjectConfName% / %env.triggered.1.BuildConfName% #%env.triggered.1.BuildNumber%"
+echo "Status: %env.triggered.1.BuildStatus%"
 ```
 
-> ⚠️ **Breaking change in 260420.3** — the unindexed parameter names that single-watch triggers used to emit (`teamcity.build.triggered.BuildTypeId`, `.BuildConfName`, `.BuildNumber`, `.BuildId`, `.BuildStatus`, `.ProjectConfName`) are no longer injected. Migrate existing build scripts to the `.1.` indexed form above.
+Usage as environment variables (shell / batch):
+```bash
+# Linux / macOS
+echo "Build count: $TRIGGERED_BUILDCOUNT"
+echo "Triggered by: $TRIGGERED_1_BUILDCONFNAME #$TRIGGERED_1_BUILDNUMBER"
+```
+
+> ⚠️ **Breaking change in 260421.1** — parameter names were renamed and the schema was unified:
+> - Old (single mode): `teamcity.build.triggered.BuildTypeId`, `.BuildConfName`, `.BuildNumber`, `.BuildId`, `.BuildStatus`, `.ProjectConfName` — **removed**.
+> - Old (multi mode): `teamcity.build.triggered.BuildCount`, `teamcity.build.triggered.N.*` — **renamed** to `env.triggered.BuildCount`, `env.triggered.N.*`.
+>
+> Migrate existing build scripts to the new `env.triggered.*` indexed form above.
 
 ## Triggering User Passthrough
 

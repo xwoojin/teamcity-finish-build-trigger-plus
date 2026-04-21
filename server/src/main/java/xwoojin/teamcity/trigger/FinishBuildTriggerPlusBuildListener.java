@@ -56,14 +56,19 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
             FinishBuildTriggerPlusBuildListener.class.getName());
 
     // ── Injected parameter keys ──────────────────────────────────────────────
-    /** Always injected — value is the number of watched builds (1 in single mode, N in multi). */
-    private static final String PARAM_WATCHED_BUILD_COUNT     = "teamcity.build.triggered.BuildCount";
+    /**
+     * Always injected — value is the number of watched builds (1 in single mode, N in multi).
+     * The {@code env.} prefix makes TeamCity expose this as an environment variable
+     * ({@code TRIGGERED_BUILDCOUNT}) in addition to a configuration parameter.
+     */
+    private static final String PARAM_WATCHED_BUILD_COUNT     = "env.triggered.BuildCount";
     /**
      * Prefix for per-watched-build parameters. Always indexed (1-based) regardless
-     * of whether the trigger is in single or multi mode — callers can therefore
-     * read {@code teamcity.build.triggered.1.BuildStatus} uniformly.
+     * of whether the trigger is in single or multi mode — callers can read
+     * {@code env.triggered.1.BuildStatus} uniformly. The {@code env.} prefix makes
+     * them available as environment variables on the build agent.
      */
-    private static final String PARAM_PREFIX = "teamcity.build.triggered.";
+    private static final String PARAM_PREFIX = "env.triggered.";
 
     private static final String STATUS_SUCCESS  = "success";
     private static final String STATUS_FAILURE  = "failure";
