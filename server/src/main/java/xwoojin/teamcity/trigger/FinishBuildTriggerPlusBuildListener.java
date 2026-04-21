@@ -56,13 +56,14 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
             FinishBuildTriggerPlusBuildListener.class.getName());
 
     // ── Injected parameter keys ──────────────────────────────────────────────
-    private static final String PARAM_WATCHED_BUILD_TYPE_ID   = "teamcity.build.triggered.BuildTypeId";
-    private static final String PARAM_WATCHED_BUILD_CONF_NAME = "teamcity.build.triggered.BuildConfName";
-    private static final String PARAM_WATCHED_PROJECT_NAME    = "teamcity.build.triggered.ProjectConfName";
-    private static final String PARAM_WATCHED_BUILD_NUMBER    = "teamcity.build.triggered.BuildNumber";
-    private static final String PARAM_WATCHED_BUILD_ID        = "teamcity.build.triggered.BuildId";
-    private static final String PARAM_WATCHED_BUILD_STATUS    = "teamcity.build.triggered.BuildStatus";
+    /** Always injected — value is the number of watched builds (1 in single mode, N in multi). */
     private static final String PARAM_WATCHED_BUILD_COUNT     = "teamcity.build.triggered.BuildCount";
+    /**
+     * Prefix for per-watched-build parameters. Always indexed (1-based) regardless
+     * of whether the trigger is in single or multi mode — callers can therefore
+     * read {@code teamcity.build.triggered.1.BuildStatus} uniformly.
+     */
+    private static final String PARAM_PREFIX = "teamcity.build.triggered.";
 
     private static final String STATUS_SUCCESS  = "success";
     private static final String STATUS_FAILURE  = "failure";
@@ -201,29 +202,14 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
     private void fireSingle(@NotNull SBuildType target,
                             @NotNull BuildTriggerDescriptor td,
                             @NotNull SBuild watched) {
-        Map<String, String> props = td.getProperties();
-        boolean allAgents = "true".equals(props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_ALL_AGENTS));
-        boolean sameAgent = "true".equals(props.get(FinishBuildTriggerPlusConstants.TRIGGER_ON_SAME_AGENT));
-
-        String watchedBuildId = String.valueOf(watched.getBuildId());
-
-        Map<String, String> customParams = new HashMap<>();
-        customParams.put(PARAM_WATCHED_BUILD_TYPE_ID,   watched.getBuildTypeExternalId());
-        customParams.put(PARAM_WATCHED_BUILD_CONF_NAME, watched.getBuildTypeName());
-        customParams.put(PARAM_WATCHED_BUILD_NUMBER,    watched.getBuildNumber());
-        customParams.put(PARAM_WATCHED_BUILD_ID,        watchedBuildId);
-        customParams.put(PARAM_WATCHED_BUILD_STATUS,    resolveStatus(watched));
-
-        SBuildType watchedBt = watched.getBuildType();
-        if (watchedBt != null && watchedBt.getProject() != null) {
-            customParams.put(PARAM_WATCHED_PROJECT_NAME, watchedBt.getProject().getFullName());
-        }
-
-        SUser user = resolveWatchedBuildUser(watched);
-        String comment = "Triggered by Finish Build Trigger (Plus)"
-                + " [watched build #" + watchedBuildId + "]";
-
-        dispatchQueue(target, user, customParams, comment, watched, allAgents, sameAgent);
+        // Reuse the multi-mode indexed format so downstream build scripts can
+        // read `teamcity.build.triggered.1.*` + `BuildCount` uniformly in both
+        // single and multi modes.
+        LinkedHashMap<String, SBuild> oneEntry = new LinkedHashMap<>();
+        String key = watched.getBuildTypeExternalId();
+        if (key == null) key = watched.getBuildTypeId();
+        oneEntry.put(key, watched);
+        fireMulti(target, td, oneEntry);
     }
 
     // ── Multi mode (AND) ─────────────────────────────────────────────────────
@@ -350,7 +336,7 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
 
         int idx = 1;
         for (SBuild build : newBuilds.values()) {
-            String prefix = "teamcity.build.triggered." + idx + ".";
+            String prefix = PARAM_PREFIX + idx + ".";
             customParams.put(prefix + "BuildTypeId",   build.getBuildTypeExternalId());
             customParams.put(prefix + "BuildConfName", build.getBuildTypeName());
             customParams.put(prefix + "BuildNumber",   build.getBuildNumber());
