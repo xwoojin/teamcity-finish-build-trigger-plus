@@ -140,6 +140,15 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
             for (BuildTriggerDescriptor td : triggers) {
                 if (!FinishBuildTriggerPlusConstants.TRIGGER_NAME.equals(td.getTriggerName())) continue;
 
+                // Honor the trigger's enabled flag — disabled triggers must not fire.
+                // (Old polling implementation got this for free from TC's scheduler;
+                //  the event-based path has to check explicitly.)
+                if (!target.isEnabled(td.getId())) {
+                    LOG.debug("[FinishBuildTriggerPlus] Skipping disabled trigger "
+                            + td.getId() + " on " + target.getExternalId());
+                    continue;
+                }
+
                 List<String> watchedIds = parseWatchedIds(td);
                 if (watchedIds.isEmpty()) continue;
 
