@@ -118,12 +118,6 @@ echo "Build count: $TRIGGERED_BUILDCOUNT"
 echo "Triggered by: $TRIGGERED_1_BUILDCONFNAME #$TRIGGERED_1_BUILDNUMBER"
 ```
 
-> ⚠️ **Breaking change in 260421.1** — parameter names were renamed and the schema was unified:
-> - Old (single mode): `teamcity.build.triggered.BuildTypeId`, `.BuildConfName`, `.BuildNumber`, `.BuildId`, `.BuildStatus`, `.ProjectConfName` — **removed**.
-> - Old (multi mode): `teamcity.build.triggered.BuildCount`, `teamcity.build.triggered.N.*` — **renamed** to `env.triggered.BuildCount`, `env.triggered.N.*`.
->
-> Migrate existing build scripts to the new `env.triggered.*` indexed form above.
-
 ## Triggering User Passthrough
 
 If the watched build was manually run by a user, the triggered build inherits that user as `teamcity.build.triggeredBy.username`.
