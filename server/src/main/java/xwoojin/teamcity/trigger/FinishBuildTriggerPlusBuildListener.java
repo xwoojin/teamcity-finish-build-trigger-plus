@@ -1,6 +1,7 @@
 package xwoojin.teamcity.trigger;
 
 import com.intellij.openapi.diagnostic.Logger;
+import jetbrains.buildServer.buildTriggers.BuildCustomizationSettings;
 import jetbrains.buildServer.buildTriggers.BuildTriggerDescriptor;
 import jetbrains.buildServer.serverSide.AgentCompatibility;
 import jetbrains.buildServer.serverSide.AgentDescription;
@@ -9,6 +10,7 @@ import jetbrains.buildServer.serverSide.BuildCustomizer;
 import jetbrains.buildServer.serverSide.BuildCustomizerFactory;
 import jetbrains.buildServer.serverSide.BuildPromotion;
 import jetbrains.buildServer.serverSide.BuildServerAdapter;
+import jetbrains.buildServer.serverSide.Parameter;
 import jetbrains.buildServer.serverSide.ProjectManager;
 import jetbrains.buildServer.serverSide.SBuild;
 import jetbrains.buildServer.serverSide.SBuildAgent;
@@ -386,12 +388,13 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
         String comment = "Triggered by Finish Build Trigger (Plus)"
                 + " [multi-build: " + ids + "]";
 
-        dispatchQueue(target, user, customParams, comment, mostRecent, allAgents, sameAgent);
+        dispatchQueue(target, td, user, customParams, comment, mostRecent, allAgents, sameAgent);
     }
 
     // ── Queue dispatch (all-agents / same-agent / default) ───────────────────
 
     private void dispatchQueue(@NotNull SBuildType target,
+                               @NotNull BuildTriggerDescriptor td,
                                @Nullable SUser user,
                                @NotNull Map<String, String> customParams,
                                @NotNull String comment,
@@ -399,18 +402,18 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
                                boolean allAgents,
                                boolean sameAgent) {
         if (allAgents) {
-            queueOnAllAgents(target, user, customParams, comment);
+            queueOnAllAgents(target, td, user, customParams, comment);
         } else if (sameAgent) {
-            queueOnSameAgent(target, user, customParams, comment, watchedForAgent);
+            queueOnSameAgent(target, td, user, customParams, comment, watchedForAgent);
         } else {
-            BuildCustomizer customizer = myBuildCustomizerFactory.createBuildCustomizer(target, user);
-            customizer.addParametersIfAbsent(customParams);
+            BuildCustomizer customizer = createCustomizer(target, td, user, customParams);
             customizer.createPromotion().addToQueue(comment);
             LOG.info("[FinishBuildTriggerPlus] Queued: " + target.getFullName());
         }
     }
 
     private void queueOnAllAgents(@NotNull SBuildType target,
+                                  @NotNull BuildTriggerDescriptor td,
                                   @Nullable SUser user,
                                   @NotNull Map<String, String> customParams,
                                   @NotNull String comment) {
@@ -418,8 +421,7 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
         if (compatibilities.isEmpty()) {
             LOG.warn("[FinishBuildTriggerPlus] getAgentCompatibilities() empty for "
                     + target.getFullName() + "; falling back to unassigned queue entry.");
-            BuildCustomizer customizer = myBuildCustomizerFactory.createBuildCustomizer(target, user);
-            customizer.addParametersIfAbsent(customParams);
+            BuildCustomizer customizer = createCustomizer(target, td, user, customParams);
             customizer.createPromotion().addToQueue(comment);
             return;
         }
@@ -432,8 +434,7 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
             SBuildAgent agent = (SBuildAgent) agentDesc;
             if (!agent.isEnabled() || !agent.isAuthorized()) continue;
 
-            BuildCustomizer customizer = myBuildCustomizerFactory.createBuildCustomizer(target, user);
-            customizer.addParametersIfAbsent(customParams);
+            BuildCustomizer customizer = createCustomizer(target, td, user, customParams);
             BuildPromotion promotion = customizer.createPromotion();
             promotion.addToQueue(agent, comment);
             LOG.info("[FinishBuildTriggerPlus] Queued on agent '"
@@ -444,13 +445,13 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
         if (queued == 0) {
             LOG.warn("[FinishBuildTriggerPlus] No eligible agents for "
                     + target.getFullName() + "; falling back to unassigned queue entry.");
-            BuildCustomizer customizer = myBuildCustomizerFactory.createBuildCustomizer(target, user);
-            customizer.addParametersIfAbsent(customParams);
+            BuildCustomizer customizer = createCustomizer(target, td, user, customParams);
             customizer.createPromotion().addToQueue(comment);
         }
     }
 
     private void queueOnSameAgent(@NotNull SBuildType target,
+                                  @NotNull BuildTriggerDescriptor td,
                                   @Nullable SUser user,
                                   @NotNull Map<String, String> customParams,
                                   @NotNull String comment,
@@ -462,18 +463,67 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
                 || !watchedAgent.isAuthorized()) {
             LOG.warn("[FinishBuildTriggerPlus] Same-agent mode: agent unavailable for "
                     + target.getFullName() + "; falling back to unassigned queue entry.");
-            BuildCustomizer customizer = myBuildCustomizerFactory.createBuildCustomizer(target, user);
-            customizer.addParametersIfAbsent(customParams);
+            BuildCustomizer customizer = createCustomizer(target, td, user, customParams);
             customizer.createPromotion().addToQueue(comment);
             return;
         }
 
-        BuildCustomizer customizer = myBuildCustomizerFactory.createBuildCustomizer(target, user);
-        customizer.addParametersIfAbsent(customParams);
+        BuildCustomizer customizer = createCustomizer(target, td, user, customParams);
         BuildPromotion promotion = customizer.createPromotion();
         promotion.addToQueue(watchedAgent, comment);
         LOG.info("[FinishBuildTriggerPlus] Same-agent mode: queued on '"
                 + watchedAgent.getName() + "' for " + target.getFullName());
+    }
+
+    /**
+     * Creates a {@link BuildCustomizer} that applies, in order:
+     * <ol>
+     *   <li>The trigger's Build Customization tab settings (clean checkout flags +
+     *       user-defined parameters from {@link BuildTriggerDescriptor#getBuildCustomizationSettings()}).
+     *       These override the build configuration's defaults — same precedence the
+     *       built-in Finish Build Trigger gives them.</li>
+     *   <li>Our auto-injected {@code env.triggered.*} parameters via
+     *       {@code addParametersIfAbsent}, so they fill in without ever clobbering
+     *       a user-set value.</li>
+     * </ol>
+     *
+     * <p>The polled implementation got step (1) for free from
+     * {@code PolledTriggerContext.createBuildCustomizer(user)}; the event-based
+     * path has to apply it explicitly.
+     */
+    @NotNull
+    private BuildCustomizer createCustomizer(@NotNull SBuildType target,
+                                             @NotNull BuildTriggerDescriptor td,
+                                             @Nullable SUser user,
+                                             @NotNull Map<String, String> injectedParams) {
+        BuildCustomizer customizer = myBuildCustomizerFactory.createBuildCustomizer(target, user);
+
+        BuildCustomizationSettings settings = td.getBuildCustomizationSettings();
+        if (settings != null && !settings.isEmpty()) {
+            if (settings.isEnforceCleanCheckout()) {
+                customizer.setCleanSources(true);
+            }
+            if (settings.isEnforceCleanCheckoutForDependencies()) {
+                // Closest BuildCustomizer mapping for "apply clean checkout to all
+                // snapshot dependencies" — forces dependency rebuild so each dep
+                // build gets the clean-sources treatment.
+                customizer.setRebuildDependencies(true);
+            }
+
+            List<Parameter> userParams = settings.getParameters();
+            if (userParams != null && !userParams.isEmpty()) {
+                Map<String, String> userParamMap = new HashMap<>();
+                for (Parameter p : userParams) {
+                    userParamMap.put(p.getName(), p.getValue());
+                }
+                // setParameters: overrides the build type's defaults for this run.
+                customizer.setParameters(userParamMap);
+            }
+        }
+
+        // env.triggered.* metadata — never overrides a user-set parameter
+        customizer.addParametersIfAbsent(injectedParams);
+        return customizer;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
