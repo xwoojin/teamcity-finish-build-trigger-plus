@@ -99,6 +99,10 @@ All parameters use the `env.` prefix, so TeamCity exposes them **both** as confi
 | `env.triggered.1.BuildNumber` | `42` | Build number of the 1st watched build |
 | `env.triggered.1.BuildId` | `801` | Internal numeric build ID of the 1st watched build |
 | `env.triggered.1.BuildStatus` | `success` | Status of the 1st watched build: `success`, `failure`, or `canceled` |
+| `env.triggered.1.BuildStart` | `2026-05-24T17:58:00` | Start time of the 1st watched build (local ISO 8601, no timezone offset) |
+| `env.triggered.1.BuildFinish` | `2026-05-24T18:03:12` | Finish time of the 1st watched build (local ISO 8601, no timezone offset) |
+| `env.triggered.1.Duration` | `312` | Duration of the 1st watched build in **seconds** (finish − start) |
+| `env.triggered.1.TriggeredBy` | `wooji` | Who triggered the 1st watched build — username if user-triggered, otherwise TeamCity's trigger description (e.g. `Schedule trigger`, `VCS change`) |
 | `env.triggered.2.*` | ... | Same fields for the 2nd watched build *(multi mode only)* |
 | `env.triggered.N.*` | ... | Same fields for the Nth watched build *(multi mode only)* |
 

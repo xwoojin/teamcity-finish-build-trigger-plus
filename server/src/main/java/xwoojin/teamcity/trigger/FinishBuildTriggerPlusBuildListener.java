@@ -22,6 +22,8 @@ import jetbrains.buildServer.users.SUser;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -358,6 +360,10 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
             customParams.put(prefix + "BuildNumber",   build.getBuildNumber());
             customParams.put(prefix + "BuildId",       String.valueOf(build.getBuildId()));
             customParams.put(prefix + "BuildStatus",   resolveStatus(build));
+            customParams.put(prefix + "BuildStart",    formatTimestamp(build.getStartDate()));
+            customParams.put(prefix + "BuildFinish",   formatTimestamp(effectiveFinishDate(build)));
+            customParams.put(prefix + "Duration",      formatDurationSeconds(build));
+            customParams.put(prefix + "TriggeredBy",   formatTriggeredBy(build));
 
             SBuildType bt = build.getBuildType();
             if (bt != null && bt.getProject() != null) {
@@ -537,6 +543,71 @@ public class FinishBuildTriggerPlusBuildListener extends BuildServerAdapter {
     private static String resolveStatus(@NotNull SBuild build) {
         if (build.getCanceledInfo() != null) return STATUS_CANCELED;
         return build.getBuildStatus().isSuccessful() ? STATUS_SUCCESS : STATUS_FAILURE;
+    }
+
+    /**
+     * Local ISO 8601 timestamp truncated to whole seconds, e.g.
+     * {@code 2026-05-24T17:58:00} — no timezone offset and no fractional part.
+     */
+    private static final DateTimeFormatter TIMESTAMP_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
+    @NotNull
+    private static String formatTimestamp(@Nullable Date d) {
+        if (d == null) return "";
+        return TIMESTAMP_FORMAT.format(d.toInstant().atZone(ZoneId.systemDefault()));
+    }
+
+    /** Duration between {@code getStartDate()} and the effective finish date in whole seconds. */
+    @NotNull
+    private static String formatDurationSeconds(@NotNull SBuild build) {
+        Date start  = build.getStartDate();
+        Date finish = effectiveFinishDate(build);
+        if (start == null || finish == null) return "";
+        long seconds = (finish.getTime() - start.getTime()) / 1000L;
+        return String.valueOf(Math.max(0L, seconds));
+    }
+
+    /**
+     * Resolves the build's effective finish date. TeamCity sometimes hasn't
+     * committed {@code getFinishDate()} yet by the time {@code buildFinished()}
+     * fires, so we fall back to the agent-side finish date, and finally to the
+     * current wall-clock time (which IS the finish moment, since this is invoked
+     * from the buildFinished callback).
+     */
+    @NotNull
+    private static Date effectiveFinishDate(@NotNull SBuild build) {
+        Date fd = build.getFinishDate();
+        if (fd != null) return fd;
+        Date fdAgent = build.getFinishOnAgentDate();
+        if (fdAgent != null) return fdAgent;
+        return new Date();
+    }
+
+    /**
+     * Human-readable "who/what triggered this build" string.
+     * <ul>
+     *   <li>User-triggered → the username (e.g. {@code "wooji"}).</li>
+     *   <li>Otherwise → TeamCity's raw triggered-by description
+     *       (e.g. {@code "Finish Build Trigger (Plus): Build A"},
+     *       {@code "Schedule trigger"}, {@code "VCS change"}).</li>
+     * </ul>
+     */
+    @NotNull
+    private static String formatTriggeredBy(@NotNull SBuild build) {
+        TriggeredBy tb = build.getTriggeredBy();
+        if (tb == null) return "";
+        if (tb.isTriggeredByUser()) {
+            SUser u = tb.getUser();
+            if (u != null) {
+                String name = u.getUsername();
+                if (name != null && !name.isEmpty()) return name;
+                String desc = u.getDescriptiveName();
+                if (desc != null && !desc.isEmpty()) return desc;
+            }
+        }
+        String raw = tb.getRawTriggeredBy();
+        return raw != null ? raw : "";
     }
 
     @Nullable
